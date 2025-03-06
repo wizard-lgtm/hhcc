@@ -106,6 +106,8 @@ class ASTNode:
                 result += f"{prefix}└── body:\n"
                 for stmt in self.body:
                     result += stmt.print_tree(prefix + "    ")
+            else:
+                result += "No Function body"
             return result
 
         def __repr__(self):
@@ -113,9 +115,11 @@ class ASTNode:
 
 
 class Parser:
-    def __init__(self, tokens: List[Token]):
+    def __init__(self, tokens: List[Token], code):
         self.tokens = tokens
         self.index = 0
+        self.code = code
+    code: str
     tokens: List[Token]
     index: int
 
@@ -178,7 +182,7 @@ class Parser:
         # Move to variable name
         var_name = self.next_token()
         if not var_name or var_name._type != TokenType.LITERAL:
-            raise Exception(f"Syntax Error: Expected variable name at line {var_name.line}")
+            self.syntax_error("Excepted variable name", var_name)
         
         node = ASTNode.VariableDeclaration(var_type.value, var_name.value, None)
         
@@ -224,10 +228,100 @@ class Parser:
         # Expect semicolon
         next_token = self.current_token()
         if not next_token or next_token.value != separators["SEMICOLON"]:
-            raise Exception(f"Syntax Error: Expected semicolon at line {next_token.line}")
+            self.syntax_error("Excepted semicolon ", next_token)
         
         return node
+    def parse_blocks(self) -> List[ASTNode]:
+        if self.current_token().value != separators["LBRACE"]:
+            self.syntax_error("Expected '{'", self.current_token())
+        self.next_token()
+        statements = []
 
+        while self.current_token() and self.current_token().value != separators["RBRACE"]:
+            statement = self.parse_statements()
+            if statement:
+                statements.append(statement)
+        # Check for '}'
+        if not self.current_token() or self.current_token().value != separators["RBRACE"]:
+            self.syntax_error("Expected '}'", self.current_token())
+        pass
+
+        # Skip the '}'
+        self.next_token()
+
+        return statements
+    def parse_return_statement(self) -> ASTNode:
+        # Parse variable name
+        var_name = None
+        if self.current_token().value == keywords["RETURN"]:
+            self.next_token()  # Skip the 'return' keyword
+            if self.current_token() and self.current_token().value != separators["SEMICOLON"]:
+                var_name = self.current_token().value
+                self.next_token()  # Skip the variable name
+            
+            # Check for semicolon
+            if not self.current_token() or self.current_token().value != separators["SEMICOLON"]:
+                self.syntax_error("Expected ';'", self.current_token())
+            
+            self.next_token()  # Skip the semicolon
+        return ASTNode.Return(var_name)
+    def function_declaration(self):
+        print("Function declaration parsing")
+
+        return_type = self.current_token()
+        if not return_type or return_type._type != TokenType.KEYWORD:
+            self.syntax_error("Excepted return type", return_type)
+        if not (return_type.value in Datatypes.all_types()):
+            self.syntax_error("Invalid return type", return_type)
+        
+        next_token = self.next_token()
+        if not next_token or next_token._type != TokenType.LITERAL:
+            self.syntax_error("Excepted function name", return_type)
+        func_name = next_token.value
+
+        # Move to opening parenthesis '('
+        next_token = self.next_token()
+        if not next_token or next_token.value != separators["LPAREN"]:
+            self.syntax_error("Excepted '('", return_type)
+
+        parameters = []
+        peek_token = self.peek_token()
+        if peek_token and peek_token.value == separators["RPAREN"]:
+            self.next_token()  # Consume the ')'
+        while True:
+            param_type = self.next_token()
+            if not param_type or param_type._type != TokenType.KEYWORD:
+                self.syntax_error("Expected parameter type", param_type)
+            if not (param_type.value in Datatypes.all_types()):
+                self.syntax_error("Invalid parameter type", param_type)
+            
+            param_name = self.next_token()
+            if not param_name or param_name._type != TokenType.LITERAL:
+                self.syntax_error("Expected parameter name", param_name)
+            
+            # Create parameter variable declaration
+            param = ASTNode.VariableDeclaration(param_type.value, param_name.value)
+            parameters.append(param)
+            
+            next_token = self.next_token()
+            if next_token.value == separators["RPAREN"]:
+                break
+            elif next_token.value != separators["COMMA"]:
+                self.syntax_error("Expected ',' or ')'", next_token)
+            
+
+        # check semicolon or body brace
+        next_token = self.next_token()
+        if next_token._type != TokenType.SEPARATOR or (next_token.value != separators["SEMICOLON"] and next_token.value != separators["LBRACE"]):
+            print(next_token)
+            self.syntax_error("Excepted ';' or '{'", next_token)
+
+        # Parse function body   
+        function_body = List[ASTNode]
+        # Idk how. What's even a body, a set of AST nodes?  
+        
+        function_node = ASTNode.FunctionDefinition(func_name, return_type.value, parameters, function_body)
+        return function_node
 
     def parse(self):
         nodes = []
@@ -237,23 +331,35 @@ class Parser:
             if current_token is None:
                 break
             
-            # Check for variable declaration (starts with a datatype)
-            if current_token._type == TokenType.KEYWORD and current_token.value in Datatypes.all_types():
-                node = self.variable_declaration()
-                nodes.append(node)
+            if current_token._type == TokenType.KEYWORD:
+                print(current_token)
+                next_token = self.peek_token()
+                if next_token._type == TokenType.LITERAL and self.peek_token(2).value == separators["LPAREN"]:
+                    node = self.function_declaration()
+                    nodes.append(node)
+                if current_token.value in Datatypes.all_types():
+                    node = self.variable_declaration()
+                    nodes.append(node)
+                if current_token.value == keywords["RETURN"]:
+                    node = self.parse_return_statement()
+                    nodes.append(node)
+
             
-            # Check for variable assignment (existing variable)
             elif current_token._type == TokenType.LITERAL:
-                # Peek at the next token to confirm it's an assignment
-                next_token = self.tokens[self.index + 1] if self.index + 1 < len(self.tokens) else None
+                next_token = self.peek_token()
                 if next_token and next_token.value == operators["ASSIGN"]:
                     node = self.variable_assignment()
                     nodes.append(node)
                 else:
-                    # Move to next token if not an assignment to prevent infinite loop
                     self.next_token()
             else:
-                # Move to next token if not a recognized pattern
                 self.next_token()
         
-        return nodes  
+        return nodes
+
+
+    def syntax_error(self, message, token):
+        print(token)
+        error_line = self.code.splitlines()[token.line - 1]
+        caret_position = " " * (token.column) + "^"
+        raise Exception(f"Syntax Error: {message} at line {token.line}, column {token.column}\n{error_line}\n{caret_position}")
