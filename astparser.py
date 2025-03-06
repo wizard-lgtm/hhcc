@@ -197,11 +197,37 @@ class Parser:
         
         # Check semicolon
         if not next_token or next_token.value != separators["SEMICOLON"]:
-            print(next_token)
             raise Exception(f"Syntax Error: Expected semicolon at line {next_token.line}")
         
-        print(node)
         return node
+    
+    def variable_assignment(self):
+        print("Variable assignment")
+        
+        # First token should be the variable name
+        var_name = self.current_token()
+        if not var_name or var_name._type != TokenType.LITERAL:
+            raise Exception(f"Syntax Error: Expected variable name at line {var_name.line}")
+        
+        # Move to assignment operator
+        next_token = self.next_token()
+        if not next_token or next_token.value != operators["ASSIGN"]:
+            raise Exception(f"Syntax Error: Expected assignment operator at line {next_token.line}")
+        
+        # Move to value and parse expression
+        self.next_token()  # Move past '='
+        value = self.parse_expression()
+        
+        # Create variable assignment node
+        node = ASTNode.VariableAssignment(var_name.value, value)
+        
+        # Expect semicolon
+        next_token = self.current_token()
+        if not next_token or next_token.value != separators["SEMICOLON"]:
+            raise Exception(f"Syntax Error: Expected semicolon at line {next_token.line}")
+        
+        return node
+
 
     def parse(self):
         nodes = []
@@ -211,14 +237,23 @@ class Parser:
             if current_token is None:
                 break
             
+            # Check for variable declaration (starts with a datatype)
             if current_token._type == TokenType.KEYWORD and current_token.value in Datatypes.all_types():
                 node = self.variable_declaration()
                 nodes.append(node)
+            
+            # Check for variable assignment (existing variable)
+            elif current_token._type == TokenType.LITERAL:
+                # Peek at the next token to confirm it's an assignment
+                next_token = self.tokens[self.index + 1] if self.index + 1 < len(self.tokens) else None
+                if next_token and next_token.value == operators["ASSIGN"]:
+                    node = self.variable_assignment()
+                    nodes.append(node)
+                else:
+                    # Move to next token if not an assignment to prevent infinite loop
+                    self.next_token()
             else:
-                # Important: Move to next token if not a variable declaration
-                # to prevent infinite loop
+                # Move to next token if not a recognized pattern
                 self.next_token()
         
-        return nodes
-        
-        
+        return nodes  
