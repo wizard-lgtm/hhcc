@@ -186,7 +186,7 @@ class Lexer:
                     cursor += 1
                 # parse keyword value
                 keyword_val = source_code[keyword_start: cursor]
-                if keyword_val in keywords:
+                if keyword_val in keywords.values():
                     token = Token(TokenType.KEYWORD, keyword_val, line, column)
                     tokens.append(token)  
                 else:
