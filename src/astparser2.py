@@ -182,6 +182,71 @@ class ASTParser:
         
         self.next_token()  # Consume the right brace
         return ASTNode.Block(nodes)
+    
+    def function_declaration(self):
+        func_name = str()
+        func_return_type = None
+        parameters = []
+        body = ASTNode.Block 
+
+        func_return_type  = self.current_token().value
+
+        # Get name
+
+        next_token = self.next_token()
+        if next_token._type != TokenType.LITERAL:
+            self.syntax_error("Expected function name", next_token)
+        func_name = next_token.value
+        
+        # Parse parameters
+
+        # Move to opening parenthesis '('
+        next_token = self.next_token()
+        if not next_token or next_token.value != separators["LPAREN"]:
+            self.syntax_error("Excepted '('", next_token)
+
+        peek_token = self.peek_token()
+        if peek_token and peek_token.value == separators["RPAREN"]:
+            self.next_token()  # Consume the ')'
+        else:
+            while True:
+                param_type = self.next_token()
+                if not param_type or param_type._type != TokenType.KEYWORD:
+                    self.syntax_error("Expected parameter type", param_type)
+                if not (param_type.value in Datatypes.all_types()):
+                    self.syntax_error("Invalid parameter type", param_type)
+                
+                param_name = self.next_token()
+                if not param_name or param_name._type != TokenType.LITERAL:
+                    self.syntax_error("Expected parameter name", param_name)
+
+                # Check for default value
+                default_value = None
+                peek_token = self.peek_token()
+                if peek_token and peek_token.value == operators["EQUAL"]:
+                    self.next_token()  # Consume '='
+                    default_value_token = self.next_token()
+                    if not default_value_token or default_value_token._type != TokenType.LITERAL:
+                        self.syntax_error("Expected default value", default_value_token)
+                    default_value = default_value_token.value                    
+                
+                # Create parameter variable declaration
+                param = ASTNode.VariableDeclaration(param_type.value, param_name.value, default_value)
+                parameters.append(param)
+                
+                next_token = self.next_token()
+                if next_token.value == separators["RPAREN"]:
+                    break
+                elif next_token.value != separators["COMMA"]:
+                    self.syntax_error("Expected ',' or ')'", next_token)
+
+        # Parse body (block)
+        next_token = self.next_token()
+        if next_token is None or next_token.value not in [separators["SEMICOLON"], separators["LBRACE"]]:
+            self.syntax_error("Expected ';' or '{'", next_token)
+        body = self.block()
+
+        return ASTNode.FunctionDefinition(func_name, func_return_type, body, parameters)
 
     def parse_statement(self, inside_block: bool) -> ASTNode:
         current_token = self.current_token()
@@ -189,11 +254,15 @@ class ASTParser:
             return None
 
         if current_token._type == TokenType.KEYWORD:
+            next_token = self.peek_token()
             if current_token.value in Datatypes.all_types():
-                return self.variable_declaration()
+                if next_token._type == TokenType.LITERAL and self.peek_token(2).value == separators["LPAREN"]:
+                    return self.function_declaration()
+                else: 
+                    return self.variable_declaration()
             if current_token.value == keywords["RETURN"]:
                 return self.return_statement()
-        
+
         if current_token._type == TokenType.SEPARATOR:
             if current_token.value == separators["LBRACE"]:
                 return self.block()

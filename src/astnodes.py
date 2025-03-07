@@ -103,11 +103,11 @@ class ASTNode:
             return self.print_tree()
 
     class FunctionDefinition:
-        def __init__(self, name, return_type, parameters: List["ASTNode.VariableDeclaration"] = None, body: List[Union["ASTNode.ExpressionNode", "ASTNode.VariableDeclaration", "ASTNode.Return"]] = None):
+        def __init__(self, name, return_type, body, parameters ): 
             self.name = name
             self.return_type = return_type
             self.parameters = parameters or []
-            self.body = body or []
+            self.body = body 
 
         def print_tree(self, prefix=""):
             result = f"{prefix}FunctionDefinition\n"
@@ -115,12 +115,12 @@ class ASTNode:
             result += f"{prefix}├── return_type: {self.return_type}\n"
             if self.parameters:
                 result += f"{prefix}├── parameters:\n"
-                for param in self.parameters:
-                    result += param.print_tree(prefix + "│   ")
+                if self.parameters:
+                    for param in self.parameters:
+                        result += param.print_tree(prefix + "│   ")
             if self.body:
-                result += f"{prefix}└── body:\n"
-                for stmt in self.body:
-                    result += stmt.print_tree(prefix + "    ")
+                result += f"{prefix}└── body: {self.body}\n"
+                
             else:
                 result += "No Function body"
             return result
