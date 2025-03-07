@@ -29,10 +29,25 @@ class ASTParser:
         return None
     
     def syntax_error(self, message, token):
-        error_line = self.code.splitlines()[token.line - 1]
-        caret_position = " " * (token.column) + "^"
-        print(f"caused token: {token}")
-        raise Exception(f"Syntax Error: {message} at line {token.line}, column {token.column}\n{error_line}\n{caret_position}")
+        if token is not None:
+            try:
+                error_line = self.code.splitlines()[token.line - 1]
+            except IndexError:
+                error_line = "[ERROR: Line out of range]"
+            
+            # Ensure caret aligns with the column, even for lines shorter than the column number
+            caret_position = " " * (min(token.column, len(error_line))) + "^"
+            
+            # More informative token printing (repr() gives more detailed information)
+            print(f"Caused token: {repr(token)}")
+            
+            raise Exception(f"Syntax Error: {message} at line {token.line}, column {token.column}\n"
+                            f"{error_line}\n"
+                            f"{caret_position}")
+        else:
+            # Provide more context when token is None
+            print("Syntax Error: Token is None, something went wrong during parsing. Please check the input.")
+
 
     def variable_declaration(self):
         print("Variable declaration")
@@ -101,6 +116,8 @@ class ASTParser:
 
     def check_semicolon(self):
         current_token = self.current_token()
+        if current_token == None:
+            self.syntax_error("Excepted semicolon", self.peek_token(-1))
         if not (current_token._type == TokenType.SEPARATOR and current_token.value == separators["SEMICOLON"]):
             self.syntax_error("Excepted semicolon", current_token)
         self.next_token() # Consume semicolon
@@ -137,8 +154,34 @@ class ASTParser:
         
         self.syntax_error("Unexpected token", start_token)
         
-    def parse_block(self):
-        pass
+
+    def block(self):
+        opening_token = self.current_token()  # Remember where the block started for better error reporting
+        self.next_token()  # Consume the opening brace
+        nodes = []
+        
+        while self.current_token() and self.current_token().value != separators["RBRACE"]:
+            try:
+                node = self.parse_statement(inside_block=True)
+                if node:
+                    nodes.append(node)
+            except Exception as e:
+                # Simple error recovery: skip to the next semicolon or right brace
+                print(f"Error in block: {e}")
+                while (self.current_token() and 
+                    self.current_token().value not in [separators["SEMICOLON"], separators["RBRACE"]]):
+                    self.next_token()
+                if self.current_token() and self.current_token().value == separators["SEMICOLON"]:
+                    self.next_token()  # Skip the semicolon
+        
+        # Check for rbrace
+        if not self.current_token() or self.current_token().value != separators["RBRACE"]:
+            self.syntax_error(f"Expected `}}` to close block that started at line {opening_token.line}", self.current_token() or self.tokens[-1])
+            # No recovery possible here, the block is incomplete
+            return ASTNode.Block(nodes)
+        
+        self.next_token()  # Consume the right brace
+        return ASTNode.Block(nodes)
 
     def parse_statement(self, inside_block: bool) -> ASTNode:
         current_token = self.current_token()
@@ -151,12 +194,16 @@ class ASTParser:
             if current_token.value == keywords["RETURN"]:
                 return self.return_statement()
         
+        if current_token._type == TokenType.SEPARATOR:
+            if current_token.value == separators["LBRACE"]:
+                return self.block()
+
         elif current_token._type == TokenType.LITERAL:
             next_token = self.peek_token()
             if next_token and next_token.value == operators["ASSIGN"]:
                 return self.variable_assignment()
 
-        return None  # Explicitly return None if no statement was parsed
+        self.syntax_error("Unexpected statement", current_token)
 
 
     
@@ -164,7 +211,8 @@ class ASTParser:
     def parse(self):
         
         while self.index < len(self.tokens): 
-           node = self.parse_statement(inside_block=False)            
-           self.nodes.append(node)
+            node = self.parse_statement(inside_block=False)
+            if node:
+                self.nodes.append(node)
 
         return self.nodes
