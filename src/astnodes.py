@@ -39,6 +39,27 @@ class ASTNode:
         def __repr__(self):
             return self.print_tree()
 
+
+    class Block:
+        nodes: List
+
+        def __init__(self, nodes):
+            self.nodes = nodes
+
+        def print_tree(self, prefix=""):
+            result = f"{prefix}Block\n"
+            for node in self.nodes:
+                # Check if the node has a print_tree method (i.e., it's a valid AST node)
+                if hasattr(node, 'print_tree'):
+                    result += node.print_tree(prefix + "    ")
+                else:
+                    result += f"{prefix}    {str(node)}\n"  # For non-structured nodes (simple types)
+            return result
+
+        def __repr__(self):
+            return self.print_tree()
+
+
     class VariableDeclaration:
         def __init__(self, var_type, name, value=None):
             self.var_type = var_type
