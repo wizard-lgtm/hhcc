@@ -153,20 +153,18 @@ class Token:
     column: int
 
 
-
 class Lexer:
-    source_code: str
     def __init__(self, source_code):
-        self.source_code = source_code 
-    def tokenize(self): 
+        self.source_code = source_code
+
+    def tokenize(self):
         source_code = self.source_code
         tokens = []
         line = 1
         column = 0
-        cursor = 0 
+        cursor = 0
 
         while cursor < len(source_code):
-            
             current_chr = source_code[cursor]
 
             # Skip whitespace (spaces, tabs)
@@ -179,50 +177,76 @@ class Lexer:
                 cursor += 1
                 continue
 
-            # Keywords
-            if current_chr.isalnum():
-                keyword_start = cursor
-                while cursor < len(source_code) and source_code[cursor].isalnum() and source_code[cursor] != ' ':
+            # Identifiers and Keywords
+            if current_chr.isalpha() or current_chr == "_":  # Start of an identifier/keyword
+                start = cursor
+                while cursor < len(source_code) and (source_code[cursor].isalnum() or source_code[cursor] == "_"):
                     cursor += 1
-                # parse keyword value
-                keyword_val = source_code[keyword_start: cursor]
-                if keyword_val in keywords.values():
-                    token = Token(TokenType.KEYWORD, keyword_val, line, column)
-                    tokens.append(token)  
-                else:
-                    token = Token(TokenType.LITERAL, keyword_val, line, column)   
-                    tokens.append(token)       
 
-            # Numerical
+                value = source_code[start:cursor]
+
+                if value in keywords.values():
+                    token = Token(TokenType.KEYWORD, value, line, column)
+                else:
+                    token = Token(TokenType.LITERAL, value, line, column)
+
+                tokens.append(token)
+                column += cursor - start
+                continue  # Avoid incrementing cursor again
+
+            # Numerical Literals
             elif current_chr.isdigit():
                 start = cursor
                 while cursor < len(source_code) and source_code[cursor].isdigit():
                     cursor += 1
-                # parse numeric value
-                val = source_code[start: cursor]
-                token = Token(TokenType.LITERAL, val, line, column)
-                tokens.append(token)
 
-            
-            # Handle operators
-            for operator_name, operator_value in operators.items():
+                value = source_code[start:cursor]
+                token = Token(TokenType.LITERAL, value, line, column)
+                tokens.append(token)
+                column += cursor - start
+                continue  # Avoid incrementing cursor again
+
+            # Handle Operators
+            for operator_name, operator_value in sorted(operators.items(), key=lambda x: -len(x[1])):  # Match longest first
                 if source_code[cursor:cursor + len(operator_value)] == operator_value:
                     token = Token(TokenType.OPERATOR, operator_value, line, column)
                     tokens.append(token)
-                    cursor += len(operator_value)  # Move the cursor by the length of the operator
-                    column += len(operator_value)  # Adjust column number based on the operator length
-                    break
-            # Handle separators
-            for separator_name, separator_value in separators.items():
-                if source_code[cursor:cursor + len(separator_value)] == separator_value:
-                    token = Token(TokenType.SEPARATOR, separator_value, line, column)
-                    tokens.append(token)
-                    cursor += len(separator_value)  # Move the cursor by the length of the separator
-                    column += len(separator_value)  # Adjust column number based on the separator length
+                    cursor += len(operator_value)
+                    column += len(operator_value)
                     break
             else:
-                cursor+=1
-                column+=1
+                # Handle Separators
+                for separator_name, separator_value in separators.items():
+                    if source_code[cursor:cursor + len(separator_value)] == separator_value:
+                        token = Token(TokenType.SEPARATOR, separator_value, line, column)
+                        tokens.append(token)
+                        cursor += len(separator_value)
+                        column += len(separator_value)
+                        break
+                else:
+                    cursor += 1
+                    column += 1
 
-            # Operators
         return tokens
+
+
+def test():
+    code = r"""
+U8 a;
+U64 b = 10;
+b = 4;
+U8 c = a + b + 5;
+U8 myfunc(U8 a=5){
+    U8 c = a + 5;
+
+    return c;
+}
+
+{} {} 
+    """
+    lexer = Lexer(source_code=code)
+    tokens = lexer.tokenize()
+    for token in tokens:
+        print(token)
+    
+test()

@@ -223,7 +223,7 @@ class ASTParser:
                 # Check for default value
                 default_value = None
                 peek_token = self.peek_token()
-                if peek_token and peek_token.value == operators["EQUAL"]:
+                if peek_token and peek_token.value == operators["ASSIGN"]:
                     self.next_token()  # Consume '='
                     default_value_token = self.next_token()
                     if not default_value_token or default_value_token._type != TokenType.LITERAL:
