@@ -123,36 +123,89 @@ class ASTParser:
         self.next_token() # Consume semicolon
 
     def parse_expression(self):
-        start_token = self.current_token()
+        return self.parse_binary_expression()
+
+    def parse_binary_expression(self, precedence=0):
+        # Define operator precedence
+        precedence_map = {
+            '+': 1, '-': 1,  # Addition, subtraction
+            '*': 2, '/': 2, '%': 2,  # Multiplication, division, modulo
+            '<': 3, '>': 3, '<=': 3, '>=': 3,  # Comparison
+            '==': 4, '!=': 4,  # Equality
+            '&&': 5,  # Logical AND
+            '||': 6,  # Logical OR
+        }
         
+        # Start with parsing a primary expression
+        left = self.parse_primary_expression()
+        
+        # Continue parsing binary operators as long as they have higher precedence
+        while True:
+            current = self.current_token()
+            if not current or current._type != TokenType.OPERATOR:
+                break
+                
+            op = current.value
+            if op not in precedence_map or precedence_map[op] < precedence:
+                break
+                
+            # Consume the operator
+            self.next_token()
+            
+            # Parse the right side with higher precedence
+            right = self.parse_binary_expression(precedence_map[op] + 1)
+            
+            # Create a binary operation node
+            left = ASTNode.ExpressionNode(
+                NodeType.BINARY_OP,
+                left=left,
+                right=right,
+                op=op
+            )
+            
+        return left
+
+    def parse_primary_expression(self):
+        current = self.current_token()
+        
+        if not current:
+            self.syntax_error("Unexpected end of input during expression parsing", self.peek_token(-1))
+            
+        # Handle parenthesized expressions
+        if current._type == TokenType.SEPARATOR and current.value == separators["LPAREN"]:
+            self.next_token()  # Consume the '('
+            expr = self.parse_binary_expression()  # Parse the inner expression
+            
+            # Expect closing parenthesis
+            current = self.current_token()
+            if not current or current.value != separators["RPAREN"]:
+                self.syntax_error("Expected closing parenthesis ')'", current)
+            
+            self.next_token()  # Consume the ')'
+            return expr
+            
         # Handle literals and identifiers
-        if start_token._type in [TokenType.LITERAL, TokenType.IDENTIFIER]:
+        elif current._type in [TokenType.LITERAL, TokenType.IDENTIFIER]:
             node = ASTNode.ExpressionNode(
-                NodeType.LITERAL if start_token._type == TokenType.LITERAL else NodeType.IDENTIFIER, 
-                value=start_token.value
+                NodeType.LITERAL if current._type == TokenType.LITERAL else NodeType.IDENTIFIER, 
+                value=current.value
             )
             self.next_token()  # Consume the token
-            
-            # Check for binary operations
-            next_token = self.current_token()
-            if next_token and next_token.value in operators.values():
-                # Parse binary operation
-                op_token = next_token
-                self.next_token()  # Consume operator
-                
-                # Parse right side of the operation
-                right_expr = self.parse_expression()
-                
-                node = ASTNode.ExpressionNode(
-                    NodeType.BINARY_OP,
-                    left=node,
-                    right=right_expr,
-                    op=op_token.value
-                )
-            
             return node
-        
-        self.syntax_error("Unexpected token", start_token)
+            
+        # Handle unary operators
+        elif current._type == TokenType.OPERATOR and current.value in ['+', '-', '!']:
+            op = current.value
+            self.next_token()  # Consume the operator
+            operand = self.parse_primary_expression()
+            return ASTNode.ExpressionNode(
+                NodeType.UNARY_OP,
+                left=operand,
+                op=op
+            )
+            
+        else:
+            self.syntax_error("Unexpected token in expression", current)
         
 
     def block(self):
@@ -248,6 +301,10 @@ class ASTParser:
 
         return ASTNode.FunctionDefinition(func_name, func_return_type, body, parameters)
 
+    def if_statement(self):
+        pass
+        return ASTNode.IfStatement()
+
     def parse_statement(self, inside_block: bool) -> ASTNode:
         current_token = self.current_token()
         if not current_token:
@@ -262,6 +319,8 @@ class ASTParser:
                     return self.variable_declaration()
             if current_token.value == keywords["RETURN"]:
                 return self.return_statement()
+            if current_token.value == keywords["IF"]:
+                return self.if_statement()
 
         if current_token._type == TokenType.SEPARATOR:
             if current_token.value == separators["LBRACE"]:
