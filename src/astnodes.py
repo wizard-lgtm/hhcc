@@ -71,7 +71,10 @@ class ASTNode:
             result += f"{prefix}├── var_type: {self.var_type}\n"
             result += f"{prefix}├── name: {self.name}\n"
             if self.value:
-                result += f"{prefix}└── value: {self.value.print_tree(prefix + '    ')}"
+                if isinstance(self.value, str):
+                    result += f"{prefix}└── value: {self.value + "\n"}"
+                else:
+                    result += f"{prefix}└── value: {self.value.print_tree(prefix + '    ')}"
             return result
 
         def __repr__(self):
