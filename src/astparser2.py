@@ -338,6 +338,12 @@ class ASTParser:
                 else_block = self.block()
         
         return ASTNode.IfStatement(condition, block, else_block)
+    
+    def while_loop(self):
+        self.next_token()
+        condition = self.parse_expression()
+        body = self.block()
+        return ASTNode.WhileLoop(condition, body)
 
     def parse_statement(self, inside_block: bool = False) -> ASTNode:
         current_token = self.current_token()
@@ -355,6 +361,8 @@ class ASTParser:
                 return self.return_statement()
             if current_token.value == keywords["IF"]:
                 return self.if_statement()
+            if current_token.value == keywords["WHILE"]:
+                return self.while_loop()
 
         if current_token._type == TokenType.SEPARATOR:
             if current_token.value == separators["LBRACE"]:

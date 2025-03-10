@@ -29,6 +29,9 @@ if (b == 5)
 if(b==4){}
 if(b!=4){}
 else{}
+
+while(1==1){
+}
 """
     tokens = Lexer(code).tokenize()
     for token in tokens:

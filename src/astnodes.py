@@ -149,3 +149,17 @@ class ASTNode:
 
         def __repr__(self):
             return self.print_tree()
+
+    class WhileLoop:
+        def __init__(self, condition, body):
+            self.condition = condition
+            self.body = body
+
+        def print_tree(self, prefix=""):
+            result = f"{prefix}WhileLoop\n"
+            result += f"{prefix}├── condition: {self.condition.print_tree(prefix + '│   ')}"
+            result += f"{prefix}└── body: {self.body.print_tree(prefix + '    ')}"
+            return result
+
+        def __repr__(self):
+            return self.print_tree()

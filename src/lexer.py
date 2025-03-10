@@ -236,7 +236,7 @@ U8 a;
 U64 b = 10;
 b = 4;
 U8 c = a + b + 5;
-U8 myfunc(U8 a=5){
+U8 myfunc(U8 a){
     U8 c = a + 5;
 
     return c;
