@@ -345,6 +345,36 @@ class ASTParser:
         body = self.block()
         return ASTNode.WhileLoop(condition, body)
 
+    def for_loop(self):
+        # check lparen
+        next_token = self.next_token()
+        if not (next_token._type == TokenType.SEPARATOR and next_token.value == separators["LPAREN"]):
+            self.syntax_error("Expected '(' ", next_token)
+        
+        # parse init
+        next_token = self.next_token()
+        init = self.variable_declaration()
+        # parse condition
+        next_token = self.next_token()
+
+        condition = self.parse_expression()
+        self.next_token()
+        self.check_semicolon()
+        # parse update
+        update = self.variable_assignment()
+        self.next_token()
+        self.check_semicolon()
+
+        # check rparen
+        next_token = self.next_token()
+        if not (next_token._type == TokenType.SEPARATOR and next_token.value == separators["RPAREN"]):
+            self.syntax_error("Expected ')' ", next_token)
+        
+        # parse body
+        body = self.block()
+        # return
+        return ASTNode.ForLoop(init, condition, update, body)
+
     def parse_statement(self, inside_block: bool = False) -> ASTNode:
         current_token = self.current_token()
         if not current_token:
@@ -363,6 +393,9 @@ class ASTParser:
                 return self.if_statement()
             if current_token.value == keywords["WHILE"]:
                 return self.while_loop()
+            if current_token.value == keywords["FOR"]:
+                return self.for_loop()
+
 
         if current_token._type == TokenType.SEPARATOR:
             if current_token.value == separators["LBRACE"]:

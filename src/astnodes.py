@@ -163,3 +163,35 @@ class ASTNode:
 
         def __repr__(self):
             return self.print_tree()
+        
+    class ForLoop:
+        def __init__(self, initialization, condition, update, body):
+            self.initialization = initialization 
+            self.condition = condition           
+            self.update = update                 # TODO! didn't implemented ++ or -- feature so it's just variable assigmnet now 
+            self.body = body                     
+        
+        def print_tree(self, prefix=""):
+            result = f"{prefix}ForLoop\n"
+            
+            if self.initialization:
+                result += f"{prefix}├── initialization: {self.initialization.print_tree(prefix + '│   ')}"
+            else:
+                result += f"{prefix}├── initialization: None\n"
+                
+            if self.condition:
+                result += f"{prefix}├── condition: {self.condition.print_tree(prefix + '│   ')}"
+            else:
+                result += f"{prefix}├── condition: None\n"
+                
+            if self.update:
+                result += f"{prefix}├── update: {self.update.print_tree(prefix + '│   ')}"
+            else:
+                result += f"{prefix}├── update: None\n"
+                
+            result += f"{prefix}└── body: {self.body.print_tree(prefix + '    ')}"
+            
+            return result
+        
+        def __repr__(self):
+            return self.print_tree()
