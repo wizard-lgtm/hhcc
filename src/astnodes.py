@@ -130,3 +130,22 @@ class ASTNode:
 
         def __repr__(self):
             return self.print_tree() 
+    class IfStatement:
+        def __init__(self, condition, if_body, else_body = None):
+            self.condition = condition 
+            self.if_body = if_body      
+            self.else_body = else_body  # A block Optinal Optinal Optinal
+
+        def print_tree(self, prefix=""):
+            result = f"{prefix}IfStatement\n"
+            result += f"{prefix}├── condition: {self.condition.print_tree(prefix + '│   ')}"
+            
+            result += f"{prefix}├── if_body: {self.if_body.print_tree(prefix + '│   ')}"
+
+            if self.else_body:
+                result += f"{prefix}├── else_body: {self.else_body.print_tree(prefix + '│   ')}"
+
+            return result
+
+        def __repr__(self):
+            return self.print_tree()
