@@ -81,19 +81,45 @@ class ASTParser:
         # First token should be the variable name
         var_name = self.current_token()
         if not var_name or var_name._type != TokenType.LITERAL:
-            self.syntax_error("Excepted variable name", var_name)
+            self.syntax_error("Expected variable name", var_name)
         
         # Move to assignment operator
         next_token = self.next_token()
-        if not next_token or next_token.value != operators["ASSIGN"]:
-            self.syntax_error("Excepted assigmnet operator", next_token)
+        if not next_token or next_token._type != TokenType.OPERATOR:
+            self.syntax_error("Expected assignment operator", next_token)
+        
+        # Handle different assignment operators
+        op = next_token.value
         
         # Move to value and parse expression
-        self.next_token()  # Move past '='
+        self.next_token()  # Move past assignment operator
         value = self.parse_expression()
         
         # Create variable assignment node
-        node = ASTNode.VariableAssignment(var_name.value, value)
+        # For compound assignments (+=, -=, etc.), create a binary operation expression
+        if op in [operators["ADD_ASSIGN"], operators["SUBTRACT_ASSIGN"], operators["MULTIPLY_ASSIGN"], 
+                operators["DIVIDE_ASSIGN"], operators["MODULO_ASSIGN"]]:
+            # Map the compound operator to its basic operator
+            basic_op_map = {
+                operators["ADD_ASSIGN"]: "+",
+                operators["SUBTRACT_ASSIGN"]: "-",
+                operators["MULTIPLY_ASSIGN"]: "*",
+                operators["DIVIDE_ASSIGN"]: "/",
+                operators["MODULO_ASSIGN"]: "%"
+            }
+            
+            # Create a binary operation for a += b equivalent to a = a + b
+            compound_value = ASTNode.ExpressionNode(
+                NodeType.BINARY_OP,
+                left=ASTNode.ExpressionNode(NodeType.LITERAL, value=var_name.value),
+                right=value,
+                op=basic_op_map[op]
+            )
+            
+            node = ASTNode.VariableAssignment(var_name.value, compound_value)
+        else:
+            # Simple assignment (=)
+            node = ASTNode.VariableAssignment(var_name.value, value)
         
         # Expect semicolon
         self.check_semicolon()
@@ -185,9 +211,9 @@ class ASTParser:
             return expr
             
         # Handle literals and identifiers
-        elif current._type in [TokenType.LITERAL, TokenType.IDENTIFIER]:
+        elif current._type == TokenType.LITERAL:
             node = ASTNode.ExpressionNode(
-                NodeType.LITERAL if current._type == TokenType.LITERAL else NodeType.IDENTIFIER, 
+                NodeType.LITERAL, 
                 value=current.value
             )
             self.next_token()  # Consume the token
@@ -206,7 +232,6 @@ class ASTParser:
             
         else:
             self.syntax_error("Unexpected token in expression", current)
-        
 
     def block(self):
         opening_token = self.current_token()  # Remember where the block started for better error reporting
@@ -346,33 +371,62 @@ class ASTParser:
         return ASTNode.WhileLoop(condition, body)
 
     def for_loop(self):
-        # check lparen
+        # Check lparen
         next_token = self.next_token()
         if not (next_token._type == TokenType.SEPARATOR and next_token.value == separators["LPAREN"]):
             self.syntax_error("Expected '(' ", next_token)
         
-        # parse init
-        next_token = self.next_token()
-        init = self.variable_declaration()
-        # parse condition
-        next_token = self.next_token()
-
-        condition = self.parse_expression()
-        self.next_token()
-        self.check_semicolon()
-        # parse update
-        update = self.variable_assignment()
-        self.next_token()
-        self.check_semicolon()
-
-        # check rparen
-        next_token = self.next_token()
-        if not (next_token._type == TokenType.SEPARATOR and next_token.value == separators["RPAREN"]):
-            self.syntax_error("Expected ')' ", next_token)
+        # parse init  
+        self.next_token()  
+        init = None
+        if self.current_token()._type == TokenType.KEYWORD:
+            init = self.variable_declaration()
+        else:
+            init = self.variable_assignment()
         
-        # parse body
+        # parse condition
+        condition = self.parse_expression()
+        
+        # check for semicolon 
+        if not self.current_token() or self.current_token().value != separators["SEMICOLON"]:
+            self.syntax_error("Expected ';' after for loop condition", self.current_token())
+        self.next_token()  # consume  
+        
+        # parse update
+        update = None
+        if self.current_token()._type == TokenType.LITERAL:
+            # assigment 
+            update_var = self.current_token().value
+            self.next_token()  
+            
+            if self.current_token()._type == TokenType.OPERATOR:
+                op = self.current_token().value
+                # Handle compound assignment operators (+=, -=, etc.)
+                if op in [operators["ADD_ASSIGN"], operators["SUBTRACT_ASSIGN"], operators["MULTIPLY_ASSIGN"], 
+                        operators["DIVIDE_ASSIGN"], operators["MODULO_ASSIGN"]]:
+                    self.next_token()  
+                    value = self.parse_expression()
+                    update = ASTNode.VariableAssignment(update_var, value)
+                # Handle increment/decrement (++, --)
+                elif op in [operators["increment"], operators["decrement"]]:
+                    self.next_token()  # Move past operator
+                    # Create a simple increment/decrement expression
+                    value = ASTNode.ExpressionNode(
+                        NodeType.BINARY_OP,
+                        left=ASTNode.ExpressionNode(NodeType.LITERAL, value=update_var),
+                        right=ASTNode.ExpressionNode(NodeType.LITERAL, value="1"),
+                        op="+" if op == operators["increment"] else "-"
+                    )
+                    update = ASTNode.VariableAssignment(update_var, value)
+        
+        #  check for rparen
+        if not self.current_token() or self.current_token().value != separators["RPAREN"]:
+            self.syntax_error("Expected ')' after for loop update", self.current_token())
+        self.next_token()  # Consume right parenthesis
+        
+        # parse body 
         body = self.block()
-        # return
+        
         return ASTNode.ForLoop(init, condition, update, body)
 
     def parse_statement(self, inside_block: bool = False) -> ASTNode:
@@ -405,6 +459,9 @@ class ASTParser:
             next_token = self.peek_token()
             if next_token and next_token.value == operators["ASSIGN"]:
                 return self.variable_assignment()
+        
+        if current_token._type == TokenType.COMMENT:
+            return self.comment()
 
         self.syntax_error("Unexpected statement", current_token)
 
