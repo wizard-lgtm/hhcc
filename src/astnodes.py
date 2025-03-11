@@ -7,7 +7,6 @@ class Variable:
 
 class NodeType(Enum):
     LITERAL = auto()
-    IDENTIFIER = auto()
     BINARY_OP = auto()
     UNARY_OP = auto()
     ASSIGNMENT = auto()
@@ -195,3 +194,13 @@ class ASTNode:
         
         def __repr__(self):
             return self.print_tree()
+        
+    class Comment:
+        def __init__(self, text):
+            self.text = text
+
+        def print_tree(self, prefix=""):
+            return f"{prefix}Comment: {self.text}\n"
+
+        def __repr__(self):
+            return self.print_tree()    

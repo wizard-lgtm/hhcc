@@ -429,6 +429,11 @@ class ASTParser:
         
         return ASTNode.ForLoop(init, condition, update, body)
 
+    def comment(self):
+        node = ASTNode.Comment(self.current_token().value)
+        self.next_token()
+        return node
+
     def parse_statement(self, inside_block: bool = False) -> ASTNode:
         current_token = self.current_token()
         if not current_token:
@@ -457,7 +462,7 @@ class ASTParser:
 
         elif current_token._type == TokenType.LITERAL:
             next_token = self.peek_token()
-            if next_token and next_token.value == operators["ASSIGN"]:
+            if next_token and next_token.value in assignment_operators.values(): 
                 return self.variable_assignment()
         
         if current_token._type == TokenType.COMMENT:
