@@ -331,39 +331,40 @@ class ASTParser:
         # Parse condition
         next_token = self.next_token()
         if not (next_token._type == TokenType.SEPARATOR and next_token.value == separators["LPAREN"]):
-            self.syntax_error("Expected expression", next_token)
+            self.syntax_error("Expected '(' after if", next_token)
         
+        self.next_token()  # Consume the opening parenthesis
         condition = self.parse_expression()
         
         # Check for closing parenthesis
-        next_token = self.current_token()
-        if not (next_token._type == TokenType.SEPARATOR and next_token.value == separators["LBRACE"]):
-            self.syntax_error("Expected closing parenthesis", next_token)
-
+        if not self.current_token() or self.current_token().value != separators["RPAREN"]:
+            self.syntax_error("Expected closing parenthesis ')'", self.current_token())
+        
+        self.next_token()  # Consume the closing parenthesis
+        
+        # Parse the if block
+        if not self.current_token() or self.current_token().value != separators["LBRACE"]:
+            self.syntax_error("Expected '{' to start if block", self.current_token())
+        
         block = self.block()
         else_block = None
         
         # Check for optional else
-        next_token = self.current_token()
-        if next_token and next_token._type == TokenType.KEYWORD and next_token.value == keywords["ELSE"]:
-            self.next_token() # consume else
+        if self.current_token() and self.current_token()._type == TokenType.KEYWORD and self.current_token().value == keywords["ELSE"]:
+            self.next_token()  # consume else
         
             # Check if it's an else-if or a simple else
-            peek_token = self.current_token()
-            if peek_token and peek_token._type == TokenType.KEYWORD and peek_token.value == keywords["IF"]:
+            if self.current_token() and self.current_token()._type == TokenType.KEYWORD and self.current_token().value == keywords["IF"]:
                 # Handle else-if by recursively calling if_statement
-                self.next_token()  # Consume the 'if' token
-                else_block = [self.if_statement()]
+                else_block = self.if_statement()
             else:
                 # Parse simple else block
-                next_token = self.current_token()
-                if not (next_token._type == TokenType.SEPARATOR and next_token.value == separators["LBRACE"]):
-                    self.syntax_error("Expected '{' to start else block", next_token)
+                if not self.current_token() or self.current_token().value != separators["LBRACE"]:
+                    self.syntax_error("Expected '{' to start else block", self.current_token())
                 
                 else_block = self.block()
         
         return ASTNode.IfStatement(condition, block, else_block)
-    
     def while_loop(self):
         self.next_token()
         condition = self.parse_expression()
