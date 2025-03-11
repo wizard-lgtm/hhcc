@@ -129,16 +129,16 @@ class ASTParser:
     def return_statement(self) -> ASTNode:
         # Parse variable name
         print("Return Statement")
-        var_name = None
+
+        expression = None
         if self.current_token().value == keywords["RETURN"]:
             self.next_token()  # Skip the 'return' keyword
             if self.current_token() and self.current_token().value != separators["SEMICOLON"]:
-                var_name = self.current_token().value
-                self.next_token()  # Skip the variable name
+                expression = self.parse_expression()
         
         # Check semicolon 
         self.check_semicolon()
-        return ASTNode.Return(var_name)
+        return ASTNode.Return(expression)
 
     def check_semicolon(self):
         current_token = self.current_token()
@@ -245,7 +245,7 @@ class ASTParser:
                     nodes.append(node)
             except Exception as e:
                 # Simple error recovery: skip to the next semicolon or right brace
-                print(f"Error in block: {e}")
+                self.syntax_error(f"Error in block: {e}\n", self.current_token())
                 while (self.current_token() and 
                     self.current_token().value not in [separators["SEMICOLON"], separators["RBRACE"]]):
                     self.next_token()

@@ -95,11 +95,11 @@ class ASTNode:
             return self.print_tree()
 
     class Return:
-        def __init__(self, var_name):
-            self.var_name = var_name
+        def __init__(self, expression):
+            self.expression = expression 
 
         def print_tree(self, prefix=""):
-            return f"{prefix}Return\n{prefix}└── var_name: {self.var_name}\n"
+            return f"{prefix}Return\n{prefix}└── expression: {self.expression}\n"
 
         def __repr__(self):
             return self.print_tree()
