@@ -74,11 +74,27 @@ operators = {
     "increment": "++",
     "decrement": "--"
 }
+
+assignment_operators = {
+    # Assignment Operators
+    "ASSIGN": "=",
+    "SHIFT_LEFT_ASSIGN": "<<=",
+    "SHIFT_RIGHT_ASSIGN": ">>=",
+    "BITWISE_AND_ASSIGN": "&=",
+    "BITWISE_OR_ASSIGN": "|=",
+    "DIVIDE_ASSIGN": "/=",
+    "MULTIPLY_ASSIGN": "*=",
+    "ADD_ASSIGN": "+=",
+    "SUBTRACT_ASSIGN": "-=",
+    "MODULO_ASSIGN": "%=",
+
+}
+
 class Datatypes:
     F64 = "F64"      # 64-bit floating point type, 8 bytes wide.
     U64 = "U64"      # unsigned 64-bit integer type, 8 bytes wide.
     I64 = "I64"      # signed 64-bit integer type, 8 bytes wide.
-    U32 = "u32"      # unsigned 32-bit integer type, 4 bytes wide.
+    U32 = "U32"      # unsigned 32-bit integer type, 4 bytes wide.
     I32 = "I32"      # Signed 32-bit integer type, 4 bytes wide.
     U16 = "U16"      # Unsigned 16-bit integer type, 2 bytes wide.
     I16 = "I16"      # Signed 16-bit integer type, 2 bytes wide.
@@ -205,6 +221,22 @@ class Lexer:
                 tokens.append(token)
                 column += cursor - start
                 continue  # Avoid incrementing cursor again
+
+            # Handle Comments
+            elif cursor + 1 < len(source_code) and source_code[cursor:cursor + 2] == "//":
+                start = cursor
+                cursor += 2  # Skip past the //
+                
+                # Continue until we hit a newline or end of file
+                while cursor < len(source_code) and source_code[cursor] != '\n':
+                    cursor += 1
+                
+                value = source_code[start:cursor]
+                token = Token(TokenType.COMMENT, value, line, column)
+                tokens.append(token)
+                column += cursor - start
+                continue  # Avoid incrementing cursor again
+
 
             # Handle Operators
             for operator_name, operator_value in sorted(operators.items(), key=lambda x: -len(x[1])):  # Match longest first
