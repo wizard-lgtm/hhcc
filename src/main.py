@@ -8,6 +8,7 @@ from astparser2 import *
                 
 def main():
     code = r"""
+U8 a = 1 == 1;
 // Variable declarations with various types and initializations
 U8 simple_var;
 U16 init_var = 42;
@@ -96,6 +97,8 @@ U8 expression_test() {
     U8 parenthesized = ((5 + 3) * 2) / (1 + 1);
     
     return arithmetic + comparison + parenthesized;
+
+    U8 a = "test";
 }
 
 // Nested loops
@@ -108,6 +111,10 @@ for (U8 outer = 0; outer < 5; outer += 1) {
         simple_var -= 10;
     }
 }
+
+if(!x){}
+
+myfunc(a, b, c);
 """
     tokens = Lexer(code).tokenize()
     for token in tokens:

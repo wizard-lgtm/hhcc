@@ -204,3 +204,27 @@ class ASTNode:
 
         def __repr__(self):
             return self.print_tree()    
+        
+    class FunctionCall:
+        def __init__(self, name, arguments):
+            self.name = name
+            self.arguments = arguments  # List of expressions
+
+        def print_tree(self, prefix=""):
+            result = f"{prefix}FunctionCall\n"
+            result += f"{prefix}├── name: {self.name}\n"
+            
+            if self.arguments:
+                result += f"{prefix}└── arguments:\n"
+                for i, arg in enumerate(self.arguments):
+                    if i < len(self.arguments) - 1:
+                        result += f"{prefix}    ├── {arg.print_tree(prefix + '    │   ')}"
+                    else:
+                        result += f"{prefix}    └── {arg.print_tree(prefix + '        ')}"
+            else:
+                result += f"{prefix}└── arguments: []\n"
+                
+            return result
+
+        def __repr__(self):
+            return self.print_tree()
