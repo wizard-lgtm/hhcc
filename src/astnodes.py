@@ -230,3 +230,31 @@ class ASTNode:
 
         def __repr__(self):
             return self.print_tree()
+        
+    class Class:
+        def __init__(self, name, fields, parent=None):
+            self.name = name
+            self.fields = fields  # List of variable assignments
+            self.parent = parent  
+
+        def print_tree(self, prefix=""):
+            result = f"{prefix}Class\n"
+            result += f"{prefix}├── name: {self.name}\n"
+
+            if self.parent:
+                result += f"{prefix}└── parent: {self.parent}\n"  
+
+            if self.fields:
+                result += f"{prefix}└── fields:\n"
+                for i, field in enumerate(self.fields):
+                    if i < len(self.fields) - 1:
+                        result += f"{prefix}    ├── {field.print_tree(prefix + '    │   ')}"
+                    else:
+                        result += f"{prefix}    └── {field.print_tree(prefix + '        ')}"
+            else:
+                result += f"{prefix}└── fields: []\n"
+
+            return result
+
+        def __repr__(self):
+            return self.print_tree()

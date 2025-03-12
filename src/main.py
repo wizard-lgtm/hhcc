@@ -117,6 +117,13 @@ if(!x){}
 // Function calls
 myfunc(a, b, c);
 myfunc;
+
+class Person : Dog
+{
+  U8 name;
+  I64 age;
+};
+
 """
     tokens = Lexer(code).tokenize()
     for token in tokens:

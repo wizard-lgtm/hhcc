@@ -485,6 +485,59 @@ class ASTParser:
         
         return ASTNode.FunctionCall(func_name, args, has_parentheses)   
 
+    def class_declaration(self):
+        class_name = None
+        parent_class = None
+        fields = []
+        
+        # Parse class name
+        next_token = self.next_token()
+        if not (next_token._type == TokenType.LITERAL):
+            self.syntax_error("Expected class name", next_token)
+        class_name = next_token.value
+
+        # Check for inheritance (colon followed by parent class name)
+        peek_token = self.peek_token()
+        if peek_token and peek_token._type == TokenType.SEPARATOR and peek_token.value == separators["COLON"]:
+            self.next_token()  # Consume the colon
+            
+            # Get parent class name
+            parent_token = self.next_token()
+            if not parent_token or parent_token._type != TokenType.LITERAL:
+                self.syntax_error("Expected parent class name after ':'", parent_token)
+            parent_class = parent_token.value
+
+        # Parse block start (expect '{')
+        next_token = self.next_token()
+        if not (next_token._type == TokenType.SEPARATOR and next_token.value == separators["LBRACE"]):
+            self.syntax_error("Expected '{'", next_token)
+
+        # Consume the opening brace
+        self.next_token()
+        
+        # Parse fields until we hit the closing brace
+        while self.current_token() and self.current_token().value != separators["RBRACE"]:
+            # Parse field declaration
+            if self.current_token()._type == TokenType.KEYWORD and self.current_token().value in Datatypes.all_types():
+                var = self.variable_declaration()
+                fields.append(var)
+            else:
+                self.syntax_error("Expected field declaration", self.current_token())
+        
+        # Check if we found the closing brace
+        if not self.current_token() or self.current_token().value != separators["RBRACE"]:
+            self.syntax_error("Expected '}' to close class declaration", self.current_token() or self.tokens[-1])
+        
+        # Consume the closing brace
+        self.next_token()
+        
+        # Check for semicolon
+        self.check_semicolon()
+
+        # Modify your ASTNode.Class constructor to accept parent_class
+        return ASTNode.Class(class_name, fields, parent_class)
+
+
     def parse_statement(self, inside_block: bool = False) -> ASTNode:
         current_token = self.current_token()
         if not current_token:
@@ -505,6 +558,8 @@ class ASTParser:
                 return self.while_loop()
             if current_token.value == keywords["FOR"]:
                 return self.for_loop()
+            if current_token.value == keywords["CLASS"]:
+                return self.class_declaration()
 
 
         if current_token._type == TokenType.SEPARATOR:
