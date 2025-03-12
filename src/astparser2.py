@@ -436,49 +436,54 @@ class ASTParser:
         return node
 
     def function_call(self):
-        # get function name 
+        # Get function name
         func_name = self.current_token().value
         
-        # check lparen 
-        next_token = self.next_token()
-        if not next_token or next_token.value != separators["LPAREN"]:
-            self.syntax_error("Expected '(' after function name", next_token)
-        
+        # Check if there are parentheses for arguments
+        has_parentheses = False
         args = []
         
-        # check isthere are any arguments
-        peek_token = self.peek_token()
-        if peek_token and peek_token.value != separators["RPAREN"]:
-            self.next_token()  # consume rparen 
+        next_token = self.peek_token()
+        if next_token and next_token.value == separators["LPAREN"]:
+            has_parentheses = True
+            self.next_token()  # Consume function name and move to '('
             
-            # parse all args  
-            while True:
-                arg = self.parse_expression()
-                args.append(arg)
+            # Check if there are any arguments
+            peek_token = self.peek_token()
+            if peek_token and peek_token.value != separators["RPAREN"]:
+                self.next_token()  # Consume the '('
                 
-                # Check for comma or closing parenthesis
-                if not self.current_token():
-                    self.syntax_error("Unexpected end of input during argument parsing", self.peek_token(-1))
+                # Parse arguments until we hit the closing parenthesis
+                while True:
+                    arg = self.parse_expression()
+                    args.append(arg)
                     
-                if self.current_token().value == separators["RPAREN"]:
-                    break # exit the loop
-                elif self.current_token().value != separators["COMMA"]:
-                    self.syntax_error("Expected ',' or ')' in arguemnts", self.current_token())
-                
-                self.next_token()  # consume ',' 
+                    # Check for comma or closing parenthesis
+                    if not self.current_token():
+                        self.syntax_error("Unexpected end of input during argument parsing", self.peek_token(-1))
+                        
+                    if self.current_token().value == separators["RPAREN"]:
+                        break  # Exit the loop
+                    elif self.current_token().value != separators["COMMA"]:
+                        self.syntax_error("Expected ',' or ')' in arguments", self.current_token())
+                    
+                    self.next_token()  # Consume the comma
+            else:
+                self.next_token()  # Consume the '('
+            
+            # Check for closing parenthesis
+            if not self.current_token() or self.current_token().value != separators["RPAREN"]:
+                self.syntax_error("Expected ')' to close function call", self.current_token())
+            
+            self.next_token()  # Consume the ')'
         else:
-            self.next_token()  # consume 
+            # No parentheses, just consume the function name
+            self.next_token()
         
-        # check rparen
-        if not self.current_token() or self.current_token().value != separators["RPAREN"]:
-            self.syntax_error("Expected ')' to close function call", self.current_token())
-        
-        self.next_token()  # consume rparen
-        
-        # semicolon
+        # Check for semicolon
         self.check_semicolon()
         
-        return ASTNode.FunctionCall(func_name, args)    
+        return ASTNode.FunctionCall(func_name, args, has_parentheses)   
 
     def parse_statement(self, inside_block: bool = False) -> ASTNode:
         current_token = self.current_token()
@@ -506,11 +511,14 @@ class ASTParser:
             if current_token.value == separators["LBRACE"]:
                 return self.block()
 
+
         elif current_token._type == TokenType.LITERAL:
             next_token = self.peek_token()
             if next_token and next_token._type == TokenType.OPERATOR and next_token.value in assignment_operators.values(): 
                 return self.variable_assignment()
-            elif next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["LPAREN"]:
+            elif (next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["LPAREN"]) or \
+                (next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["SEMICOLON"]):
+                # Function call with parentheses or without parentheses
                 return self.function_call()
 
 

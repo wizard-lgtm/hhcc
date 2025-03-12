@@ -114,7 +114,9 @@ for (U8 outer = 0; outer < 5; outer += 1) {
 
 if(!x){}
 
+// Function calls
 myfunc(a, b, c);
+myfunc;
 """
     tokens = Lexer(code).tokenize()
     for token in tokens:

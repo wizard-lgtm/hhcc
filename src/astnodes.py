@@ -206,13 +206,15 @@ class ASTNode:
             return self.print_tree()    
         
     class FunctionCall:
-        def __init__(self, name, arguments):
+        def __init__(self, name, arguments, has_parentheses=False):
             self.name = name
             self.arguments = arguments  # List of expressions
+            self.has_parentheses = has_parentheses  # Flag to indicate if parentheses were used
 
         def print_tree(self, prefix=""):
             result = f"{prefix}FunctionCall\n"
             result += f"{prefix}├── name: {self.name}\n"
+            result += f"{prefix}├── has_parentheses: {self.has_parentheses}\n"
             
             if self.arguments:
                 result += f"{prefix}└── arguments:\n"
