@@ -1,5 +1,6 @@
 from typing import List, Union
 from enum import Enum, auto
+from lexer import *
 class Variable:
     def __init__(self, name, value):
         self.name = name
@@ -60,10 +61,11 @@ class ASTNode:
 
 
     class VariableDeclaration:
-        def __init__(self, var_type, name, value=None):
+        def __init__(self, var_type, name, value=None, is_user_typed=False):
             self.var_type = var_type
             self.name = name
             self.value = value
+            self.is_user_typed = is_user_typed
 
         def print_tree(self, prefix=""):
             result = f"{prefix}VariableDeclaration\n"
@@ -74,6 +76,8 @@ class ASTNode:
                     result += f"{prefix}└── value: {self.value + "\n"}"
                 else:
                     result += f"{prefix}└── value: {self.value.print_tree(prefix + '    ')}"
+            if self.is_user_typed:
+                result += f"{prefix}└── user_typed: {self.is_user_typed}"
             return result
 
         def __repr__(self):
@@ -236,6 +240,8 @@ class ASTNode:
             self.name = name
             self.fields = fields  # List of variable assignments
             self.parent = parent  
+            Datatypes.add_type(name, self)
+            keywords[name] = name
 
         def print_tree(self, prefix=""):
             result = f"{prefix}Class\n"
@@ -243,6 +249,31 @@ class ASTNode:
 
             if self.parent:
                 result += f"{prefix}└── parent: {self.parent}\n"  
+
+            if self.fields:
+                result += f"{prefix}└── fields:\n"
+                for i, field in enumerate(self.fields):
+                    if i < len(self.fields) - 1:
+                        result += f"{prefix}    ├── {field.print_tree(prefix + '    │   ')}"
+                    else:
+                        result += f"{prefix}    └── {field.print_tree(prefix + '        ')}"
+            else:
+                result += f"{prefix}└── fields: []\n"
+
+            return result
+
+        def __repr__(self):
+            return self.print_tree()
+
+    class Union:
+        def __init__(self, name, fields):
+            self.name = name
+            self.fields = fields  # List of variable assignments
+            Datatypes.add_type(name, self)
+
+        def print_tree(self, prefix=""):
+            result = f"{prefix}Union\n"
+            result += f"{prefix}├── name: {self.name}\n"
 
             if self.fields:
                 result += f"{prefix}└── fields:\n"

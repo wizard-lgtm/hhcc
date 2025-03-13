@@ -92,22 +92,32 @@ assignment_operators = {
 
 class Datatypes:
     F64 = "F64"      # 64-bit floating point type, 8 bytes wide.
-    U64 = "U64"      # unsigned 64-bit integer type, 8 bytes wide.
-    I64 = "I64"      # signed 64-bit integer type, 8 bytes wide.
-    U32 = "U32"      # unsigned 32-bit integer type, 4 bytes wide.
+    U64 = "U64"      # Unsigned 64-bit integer type, 8 bytes wide.
+    I64 = "I64"      # Signed 64-bit integer type, 8 bytes wide.
+    U32 = "U32"      # Unsigned 32-bit integer type, 4 bytes wide.
     I32 = "I32"      # Signed 32-bit integer type, 4 bytes wide.
     U16 = "U16"      # Unsigned 16-bit integer type, 2 bytes wide.
     I16 = "I16"      # Signed 16-bit integer type, 2 bytes wide.
     U8 = "U8"        # Unsigned 8-bit integer type, 1 byte wide.
     BOOL = "BOOL"    # Boolean type, 1 byte wide (should be 0 or 1).
     U0 = "U0"        # Void type, has no size.
+    
+    user_defined_types = {}
+
     @classmethod
     def all_types(cls):
-        return [cls.F64, cls.U64, cls.I64, cls.U32, cls.I32, cls.U16, cls.I16, cls.U8, cls.BOOL, cls.U0]
+        return [
+            cls.F64, cls.U64, cls.I64, cls.U32, cls.I32,
+            cls.U16, cls.I16, cls.U8, cls.BOOL, cls.U0
+        ] + list(cls.user_defined_types.keys())
 
     @classmethod
     def get_type_from_string(cls, type_name: str):
-        return getattr(cls, type_name, None)
+        return getattr(cls, type_name, cls.user_defined_types.get(type_name, None))
+
+    @classmethod
+    def add_type(cls, name, type_def):
+        cls.user_defined_types[name] = type_def
 
 keywords = {
     "F64": "F64",        # 64bit floating point type. 8bytes wide.

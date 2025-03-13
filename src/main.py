@@ -124,6 +124,14 @@ class Person : Dog
   I64 age;
 };
 
+union Example
+{
+  I32 age;
+  U8 ch;
+};
+
+Person e;
+
 """
     tokens = Lexer(code).tokenize()
     for token in tokens:

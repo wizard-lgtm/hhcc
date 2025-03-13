@@ -49,7 +49,7 @@ class ASTParser:
             print("Syntax Error: Token is None, something went wrong during parsing. Please check the input.")
 
 
-    def variable_declaration(self):
+    def variable_declaration(self, user_typed = False):
         print("Variable declaration")
         var_type = self.current_token()
         
@@ -58,7 +58,7 @@ class ASTParser:
         if not var_name or var_name._type != TokenType.LITERAL:
             self.syntax_error("Excepted variable name", var_name)
         
-        node = ASTNode.VariableDeclaration(var_type.value, var_name.value, None)
+        node = ASTNode.VariableDeclaration(var_type.value, var_name.value, None, user_typed)
         
         # Move to next token to check assignment or semicolon
         next_token = self.next_token()
@@ -537,14 +537,54 @@ class ASTParser:
         # Modify your ASTNode.Class constructor to accept parent_class
         return ASTNode.Class(class_name, fields, parent_class)
 
+    def union_declaration(self):
+        name = None
+        fields = []
+
+        # Parse class name
+        next_token = self.next_token()
+        if not (next_token._type == TokenType.LITERAL):
+            self.syntax_error("Expected union name", next_token)
+        name = next_token.value
+
+        # Parse block start (expect '{')
+        next_token = self.next_token()
+        if not (next_token._type == TokenType.SEPARATOR and next_token.value == separators["LBRACE"]):
+            self.syntax_error("Expected '{'", next_token)
+
+        self.next_token()
+
+        # Parse fields until we hit the closing brace
+        while self.current_token() and self.current_token().value != separators["RBRACE"]:
+            # Parse field declaration
+            if self.current_token()._type == TokenType.KEYWORD and self.current_token().value in Datatypes.all_types():
+                var = self.variable_declaration()
+                fields.append(var)
+            else:
+                self.syntax_error("Expected field declaration", self.current_token())
+        
+        # Check if we found the closing brace
+        if not self.current_token() or self.current_token().value != separators["RBRACE"]:
+            self.syntax_error("Expected '}' to close class declaration", self.current_token() or self.tokens[-1])
+        
+        # Consume the closing brace
+        self.next_token()
+        
+        # Check for semicolon
+        self.check_semicolon()
+
+        return ASTNode.Union(name, fields)
+
 
     def parse_statement(self, inside_block: bool = False) -> ASTNode:
         current_token = self.current_token()
         if not current_token:
             return None
 
+       
         if current_token._type == TokenType.KEYWORD:
             next_token = self.peek_token()
+            print(Datatypes.all_types())
             if current_token.value in Datatypes.all_types():
                 if next_token._type == TokenType.LITERAL and self.peek_token(2).value == separators["LPAREN"]:
                     return self.function_declaration()
@@ -560,7 +600,8 @@ class ASTParser:
                 return self.for_loop()
             if current_token.value == keywords["CLASS"]:
                 return self.class_declaration()
-
+            if current_token.value == keywords["UNION"]:
+                return self.union_declaration()
 
         if current_token._type == TokenType.SEPARATOR:
             if current_token.value == separators["LBRACE"]:
@@ -569,13 +610,14 @@ class ASTParser:
 
         elif current_token._type == TokenType.LITERAL:
             next_token = self.peek_token()
-            if next_token and next_token._type == TokenType.OPERATOR and next_token.value in assignment_operators.values(): 
+            if current_token.value in Datatypes.user_defined_types:
+                return self.variable_declaration(True)
+            elif next_token and next_token._type == TokenType.OPERATOR and next_token.value in assignment_operators.values(): 
                 return self.variable_assignment()
             elif (next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["LPAREN"]) or \
                 (next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["SEMICOLON"]):
                 # Function call with parentheses or without parentheses
                 return self.function_call()
-
 
         
         if current_token._type == TokenType.COMMENT:
