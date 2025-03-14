@@ -99,7 +99,7 @@ class Datatypes:
     U16 = "U16"      # Unsigned 16-bit integer type, 2 bytes wide.
     I16 = "I16"      # Signed 16-bit integer type, 2 bytes wide.
     U8 = "U8"        # Unsigned 8-bit integer type, 1 byte wide.
-    BOOL = "BOOL"    # Boolean type, 1 byte wide (should be 0 or 1).
+    BOOL = "Bool"    # Boolean type, 1 byte wide (should be 0 or 1).
     U0 = "U0"        # Void type, has no size.
     
     user_defined_types = {}
@@ -144,7 +144,9 @@ keywords = {
     "UNION": "union",
     "ASM": "asm",
     "PUBLIC": "public",
-    "EXTERN": "extern"
+    "EXTERN": "extern",
+    "TRUE": "true",
+    "FALSE": "false"
 }
 
 separators = {
@@ -212,7 +214,11 @@ class Lexer:
                 value = source_code[start:cursor]
 
                 if value in keywords.values():
-                    token = Token(TokenType.KEYWORD, value, line, column)
+                    # handling for boolean literals
+                    if value in [keywords["TRUE"], keywords["FALSE"]]:
+                        token = Token(TokenType.LITERAL, value, line, column)
+                    else:
+                        token = Token(TokenType.KEYWORD, value, line, column)
                 else:
                     token = Token(TokenType.LITERAL, value, line, column)
 
