@@ -291,3 +291,17 @@ class ASTNode:
 
         def __repr__(self):
             return self.print_tree()
+
+    class Break:
+        def print_tree(self, prefix=""):
+            return f"{prefix}Break\n"
+
+        def __repr__(self):
+            return self.print_tree()
+
+    class Continue:
+        def print_tree(self, prefix=""):
+            return f"{prefix}Continue\n"
+
+        def __repr__(self):
+            return self.print_tree()

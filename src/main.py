@@ -134,6 +134,10 @@ Person e;
 
 a = e.say[3];
 
+Bool boolean = true;
+
+break;
+continue;
 """
     tokens = Lexer(code).tokenize()
     for token in tokens:

@@ -618,6 +618,24 @@ class ASTParser:
 
         return ASTNode.Union(name, fields)
 
+    def break_statement(self):
+        # consume the break keyword
+        self.next_token()
+        
+        # semicolon
+        self.check_semicolon()
+        
+        return ASTNode.Break()
+
+    def continue_statement(self):
+        # soncume the continue keyword
+        self.next_token()
+        
+        # semicolon
+        self.check_semicolon()
+        
+        return ASTNode.Continue()
+
 
     def parse_statement(self, inside_block: bool = False) -> ASTNode:
         current_token = self.current_token()
@@ -645,6 +663,10 @@ class ASTParser:
                 return self.class_declaration()
             if current_token.value == keywords["UNION"]:
                 return self.union_declaration()
+            if current_token.value == keywords["BREAK"]:
+                return self.break_statement()
+            if current_token.value == keywords["CONTINUE"]:
+                return self.continue_statement()
 
         if current_token._type == TokenType.SEPARATOR:
             if current_token.value == separators["LBRACE"]:
