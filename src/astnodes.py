@@ -12,6 +12,7 @@ class NodeType(Enum):
     UNARY_OP = auto()
     ASSIGNMENT = auto()
     CALL = auto()
+    ARRAY_ACCESS = auto()
 class ASTNode:
     class ExpressionNode:
         def __init__(self, node_type, value=None, left=None, right=None, op=None):

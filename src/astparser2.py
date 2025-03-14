@@ -217,6 +217,26 @@ class ASTParser:
                 value=current.value
             )
             self.next_token()  # Consume the token
+            
+            # Check for array indexing
+            if self.current_token() and self.current_token()._type == TokenType.SEPARATOR and self.current_token().value == separators["LBRACKET"]:
+                self.next_token()  # Consume the '['
+                index_expr = self.parse_expression()  # Parse the index expression
+                
+                # Expect closing bracket
+                if not self.current_token() or self.current_token().value != separators["RBRACKET"]:
+                    self.syntax_error("Expected closing bracket ']'", self.current_token())
+                
+                self.next_token()  # Consume the ']'
+                
+                # Create an array access node
+                return ASTNode.ExpressionNode(
+                    NodeType.ARRAY_ACCESS,
+                    left=node,  # The array identifier
+                    right=index_expr,  # The index expression
+                    op="[]"  # Use a special operator to denote array access
+                )
+            
             return node
             
         # Handle unary operators

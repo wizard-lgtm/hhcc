@@ -132,6 +132,8 @@ union Example
 
 Person e;
 
+a = e[3];
+
 """
     tokens = Lexer(code).tokenize()
     for token in tokens:
