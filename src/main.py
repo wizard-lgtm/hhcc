@@ -138,6 +138,23 @@ Bool boolean = true;
 
 break;
 continue;
+
+
+// Arrays
+
+// 1. Basic Initialization
+
+U64 arr1[5] = {1, 2, 3, 4, 5};  // Explicit size, full initialization
+U64 arr2[] = {1, 2, 3, 4, 5};   // Implicit size
+U64 arr3[5] = {1, 2};           // Partial initialization, rest will be 0
+U64 arr4[5] = {0};              // All elements initialized to 0
+
+// 2. Multidimensional Arrays
+U64 matrix1[2][2] = { {1, 2}, {3, 4} };  // Standard 2D array
+U64 matrix2[2][2] = { 1, 2, 3, 4 };      // Flattened initialization
+U64 matrix3[][2] = { {1, 2}, {3, 4} };   // Implicit first dimension
+
+
 """
     tokens = Lexer(code).tokenize()
     for token in tokens:

@@ -49,15 +49,23 @@ class ASTParser:
             print("Syntax Error: Token is None, something went wrong during parsing. Please check the input.")
 
 
-    def variable_declaration(self, user_typed = False):
+    def variable_declaration(self, user_typed=False):
         print("Variable declaration")
         var_type = self.current_token()
         
         # Move to variable name
         var_name = self.next_token()
         if not var_name or var_name._type != TokenType.LITERAL:
-            self.syntax_error("Excepted variable name", var_name)
+            self.syntax_error("Expected variable name", var_name)
         
+        # Check if this is an array declaration by looking ahead
+        peek_token = self.peek_token()
+        if peek_token and peek_token.value == separators["LBRACKET"]:
+            # Array declaration - let's consume the variable name first
+            self.next_token()  # Consume variable name
+            return self.array_declaration(var_type.value, var_name.value, user_typed)
+        
+        # Regular variable declaration continues...
         node = ASTNode.VariableDeclaration(var_type.value, var_name.value, None, user_typed)
         
         # Move to next token to check assignment or semicolon
@@ -74,7 +82,6 @@ class ASTParser:
         self.check_semicolon()
         
         return node
-    
     def variable_assignment(self):
         print("Variable assignment")
         
@@ -635,6 +642,126 @@ class ASTParser:
         self.check_semicolon()
         
         return ASTNode.Continue()
+    
+    def array_declaration(self, base_type, name, user_typed=False):
+        print("Array declaration")
+        dimensions = []
+        
+        # Parse all dimensions
+        while self.peek_token() and self.peek_token().value == separators["LBRACKET"]:
+            self.next_token()  # Consume '['
+            
+            # Check if this dimension is specified or empty
+            if self.peek_token() and self.peek_token().value == separators["RBRACKET"]:
+                # Empty dimension like arr[]
+                dimensions.append(None)
+                self.next_token()  # Consume ']'
+            else:
+                # Parse dimension expression
+                self.next_token()  # Move past '['
+                dimension_expr = self.parse_expression()
+                dimensions.append(dimension_expr)
+                
+                # Expect closing bracket
+                if not self.current_token() or self.current_token().value != separators["RBRACKET"]:
+                    self.syntax_error("Expected ']'", self.current_token())
+                
+                self.next_token()  # Consume ']'
+        
+        # Check for initialization
+        initialization = None
+        if self.current_token() and self.current_token().value == operators["ASSIGN"]:
+            self.next_token()  # Consume '='
+            
+            # Parse array initialization
+            if self.current_token() and self.current_token().value == separators["LBRACE"]:
+                initialization = self.parse_array_initialization()
+            else:
+                self.syntax_error("Expected '{' for array initialization", self.current_token())
+        
+        # Check semicolon
+        self.check_semicolon()
+        
+        return ASTNode.ArrayDeclaration(base_type, name, dimensions, initialization)
+    
+
+    def array_declaration(self, base_type, name, user_typed=False):
+        print("Array declaration")
+        dimensions = []
+        
+        # Parse all dimensions
+        while self.current_token() and self.current_token().value == separators["LBRACKET"]:
+            self.next_token()  # Move past '['
+            
+            # Check if this dimension is specified or empty
+            if self.current_token() and self.current_token().value == separators["RBRACKET"]:
+                # Empty dimension like arr[]
+                dimensions.append(None)
+            else:
+                # Parse dimension expression
+                dimension_expr = self.parse_expression()
+                dimensions.append(dimension_expr)
+                
+                # Expect closing bracket
+                if not self.current_token() or self.current_token().value != separators["RBRACKET"]:
+                    self.syntax_error("Expected ']'", self.current_token())
+            
+            self.next_token()  # Consume ']'
+        
+        # Check for initialization
+        initialization = None
+        if self.current_token() and self.current_token().value == operators["ASSIGN"]:
+            self.next_token()  # Consume '='
+            
+            # Parse array initialization
+            if self.current_token() and self.current_token().value == separators["LBRACE"]:
+                initialization = self.parse_array_initialization()
+            else:
+                self.syntax_error("Expected '{' for array initialization", self.current_token())
+        
+        # Check semicolon
+        self.check_semicolon()
+        
+        return ASTNode.ArrayDeclaration(base_type, name, dimensions, initialization)
+
+    
+    def parse_array_initialization(self):
+        print("Array initialization")
+        
+        if not self.current_token() or self.current_token().value != separators["LBRACE"]:
+            self.syntax_error("Expected '{' to start array initialization", self.current_token())
+        
+        self.next_token()  # Consume '{'
+        
+        elements = []
+        
+        # Empty initialization case like { }
+        if self.current_token() and self.current_token().value == separators["RBRACE"]:
+            self.next_token()  # Consume '}'
+            return ASTNode.ArrayInitialization(elements)
+        
+        # Parse elements separated by commas
+        while True:
+            # Check for nested array initialization
+            if self.current_token() and self.current_token().value == separators["LBRACE"]:
+                elements.append(self.parse_array_initialization())
+            else:
+                # Parse regular expression element
+                elements.append(self.parse_expression())
+            
+            # Check for comma or closing brace
+            if not self.current_token():
+                self.syntax_error("Unexpected end of input during array initialization", self.peek_token(-1))
+                
+            if self.current_token().value == separators["RBRACE"]:
+                self.next_token()  # Consume '}'
+                break  # End of initialization
+            elif self.current_token().value != separators["COMMA"]:
+                self.syntax_error("Expected ',' or '}' in array initialization", self.current_token())
+            else:
+                self.next_token()  # Consume comma
+        
+        return ASTNode.ArrayInitialization(elements)
 
 
     def parse_statement(self, inside_block: bool = False) -> ASTNode:

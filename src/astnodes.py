@@ -305,3 +305,54 @@ class ASTNode:
 
         def __repr__(self):
             return self.print_tree()
+
+    class ArrayDeclaration:
+        def __init__(self, base_type, name, dimensions, initialization=None):
+            self.base_type = base_type  # The base type (U8, U64, etc.)
+            self.name = name            # Array variable name
+            self.dimensions = dimensions  # List of expression nodes representing dimensions
+            self.initialization = initialization  # Optional initialization expression
+
+        def print_tree(self, prefix=""):
+            result = f"{prefix}ArrayDeclaration\n"
+            result += f"{prefix}├── base_type: {self.base_type}\n"
+            result += f"{prefix}├── name: {self.name}\n"
+            
+            result += f"{prefix}├── dimensions:\n"
+            for i, dim in enumerate(self.dimensions):
+                if dim:
+                    if i < len(self.dimensions) - 1:
+                        result += f"{prefix}│   ├── {dim.print_tree(prefix + '│   │   ')}"
+                    else:
+                        result += f"{prefix}│   └── {dim.print_tree(prefix + '│       ')}"
+                else:
+                    result += f"{prefix}│   ├── dynamic[]\n"
+            
+            if self.initialization:
+                result += f"{prefix}└── initialization: {self.initialization.print_tree(prefix + '    ')}"
+            
+            return result
+
+        def __repr__(self):
+            return self.print_tree()
+        
+    class ArrayInitialization:
+        def __init__(self, elements):
+            self.elements = elements  # List of expressions or nested ArrayInitializations
+
+        def print_tree(self, prefix=""):
+            result = f"{prefix}ArrayInitialization\n"
+            
+            if self.elements:
+                for i, element in enumerate(self.elements):
+                    if i < len(self.elements) - 1:
+                        result += f"{prefix}├── {element.print_tree(prefix + '│   ')}"
+                    else:
+                        result += f"{prefix}└── {element.print_tree(prefix + '    ')}"
+            else:
+                result += f"{prefix}└── [empty]\n"
+                
+            return result
+
+        def __repr__(self):
+            return self.print_tree()
