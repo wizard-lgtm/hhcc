@@ -154,6 +154,8 @@ U64 matrix1[2][2] = { {1, 2}, {3, 4} };  // Standard 2D array
 U64 matrix2[2][2] = { 1, 2, 3, 4 };      // Flattened initialization
 U64 matrix3[][2] = { {1, 2}, {3, 4} };   // Implicit first dimension
 
+U8* a;
+
 
 """
     tokens = Lexer(code).tokenize()

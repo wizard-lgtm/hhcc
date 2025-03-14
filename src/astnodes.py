@@ -63,11 +63,12 @@ class ASTNode:
 
 
     class VariableDeclaration:
-        def __init__(self, var_type, name, value=None, is_user_typed=False):
+        def __init__(self, var_type, name, value=None, is_user_typed=False, is_pointer=False):
             self.var_type = var_type
             self.name = name
             self.value = value
             self.is_user_typed = is_user_typed
+            self.is_pointer = is_pointer
 
         def print_tree(self, prefix=""):
             result = f"{prefix}VariableDeclaration\n"
@@ -80,6 +81,8 @@ class ASTNode:
                     result += f"{prefix}└── value: {self.value.print_tree(prefix + '    ')}"
             if self.is_user_typed:
                 result += f"{prefix}└── user_typed: {self.is_user_typed}"
+            if self.is_pointer:
+                result += f"{prefix}└── is_pointer: {self.is_pointer}"
             return result
 
         def __repr__(self):
@@ -356,3 +359,7 @@ class ASTNode:
 
         def __repr__(self):
             return self.print_tree()
+        
+    class Pointer:
+        variable_name: str
+        

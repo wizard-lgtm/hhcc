@@ -52,12 +52,21 @@ class ASTParser:
     def variable_declaration(self, user_typed=False):
         print("Variable declaration")
         var_type = self.current_token()
+        is_pointer = False
+    
+        peek_token = self.peek_token()
+        # Check the next token is a pointer
+        if peek_token and peek_token._type == TokenType.OPERATOR and peek_token.value == operators["POINTER"]:
+            self.next_token()
+            is_pointer = True
+        
         
         # Move to variable name
         var_name = self.next_token()
-        if not var_name or var_name._type != TokenType.LITERAL:
+        if not (var_name or var_name._type != TokenType.LITERAL):
             self.syntax_error("Expected variable name", var_name)
-        
+
+
         # Check if this is an array declaration by looking ahead
         peek_token = self.peek_token()
         if peek_token and peek_token.value == separators["LBRACKET"]:
@@ -66,7 +75,7 @@ class ASTParser:
             return self.array_declaration(var_type.value, var_name.value, user_typed)
         
         # Regular variable declaration continues...
-        node = ASTNode.VariableDeclaration(var_type.value, var_name.value, None, user_typed)
+        node = ASTNode.VariableDeclaration(var_type.value, var_name.value, None, user_typed, is_pointer)
         
         # Move to next token to check assignment or semicolon
         next_token = self.next_token()
@@ -157,6 +166,8 @@ class ASTParser:
 
     def parse_expression(self):
         return self.parse_binary_expression()
+
+
 
     def parse_binary_expression(self, precedence=0):
         # Define operator precedence
@@ -282,6 +293,7 @@ class ASTParser:
             
         else:
             self.syntax_error("Unexpected token in expression", current)
+
 
     def block(self):
         opening_token = self.current_token()  # Remember where the block started for better error reporting

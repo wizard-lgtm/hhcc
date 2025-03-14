@@ -72,7 +72,9 @@ operators = {
 
     # increment/decrement operators
     "increment": "++",
-    "decrement": "--"
+    "decrement": "--",
+    "POINTER": "*",
+    "REFERANCE": "&"
 }
 
 assignment_operators = {
