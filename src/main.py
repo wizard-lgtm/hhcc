@@ -132,7 +132,7 @@ union Example
 
 Person e;
 
-a = e[3];
+a = e.say[3];
 
 """
     tokens = Lexer(code).tokenize()
