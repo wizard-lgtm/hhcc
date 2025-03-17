@@ -14,6 +14,7 @@ class NodeType(Enum):
     CALL = auto()
     ARRAY_ACCESS = auto()
     STRUCT_ACCESS = auto()
+    REFERENCE = auto()
 class ASTNode:
     class ExpressionNode:
         def __init__(self, node_type, value=None, left=None, right=None, op=None):
@@ -128,7 +129,7 @@ class ASTNode:
                 result += f"{prefix}├── parameters:\n"
                 if self.parameters:
                     for param in self.parameters:
-                        result += param.print_tree(prefix + "│   ")
+                        result += param.print_tree(prefix + "│  ")
             if self.body:
                 result += f"{prefix}└── body: {self.body}\n"
                 
@@ -361,5 +362,25 @@ class ASTNode:
             return self.print_tree()
         
     class Pointer:
-        variable_name: str
-        
+        def __init__(self, variable_name: str):
+            self.variable_name = variable_name
+
+        def print_tree(self, prefix=""):
+            result = f"{prefix}Pointer\n"
+            result += f"{prefix}└── variable_name: {self.variable_name}\n"
+            return result
+
+        def __repr__(self):
+            return self.print_tree()
+
+    class Reference:
+        def __init__(self, variable_name):
+            self.variable_name = variable_name
+            
+        def print_tree(self, prefix=""):
+            result = f"{prefix}Reference\n"
+            result += f"{prefix}└── variable_name: {self.variable_name}\n"
+            return result
+            
+        def __repr__(self):
+            return self.print_tree()

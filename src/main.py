@@ -154,8 +154,17 @@ U64 matrix1[2][2] = { {1, 2}, {3, 4} };  // Standard 2D array
 U64 matrix2[2][2] = { 1, 2, 3, 4 };      // Flattened initialization
 U64 matrix3[][2] = { {1, 2}, {3, 4} };   // Implicit first dimension
 
+// Pointers
+
 U8* a;
 
+// Referances
+
+U8 b = &a;
+
+U0 takes_pointer(U8* ptr){
+    return &ptr.test;
+}
 
 """
     tokens = Lexer(code).tokenize()

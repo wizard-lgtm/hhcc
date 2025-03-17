@@ -215,6 +215,18 @@ class ASTParser:
         if not current:
             self.syntax_error("Unexpected end of input during expression parsing", self.peek_token(-1))
             
+
+        # Handle references (& operator)
+        if current._type == TokenType.OPERATOR and current.value == '&':
+            self.next_token()  # Consume the '&'
+            operand = self.parse_primary_expression()
+        
+            return ASTNode.ExpressionNode(
+                NodeType.REFERENCE,
+                left=operand,
+                op='&'
+            )
+
         # Handle parenthesized expressions
         if current._type == TokenType.SEPARATOR and current.value == separators["LPAREN"]:
             self.next_token()  # Consume the '('
@@ -330,17 +342,15 @@ class ASTParser:
         parameters = []
         body = ASTNode.Block 
 
-        func_return_type  = self.current_token().value
+        func_return_type = self.current_token().value
 
         # Get name
-
         next_token = self.next_token()
         if next_token._type != TokenType.LITERAL:
             self.syntax_error("Expected function name", next_token)
         func_name = next_token.value
         
         # Parse parameters
-
         # Move to opening parenthesis '('
         next_token = self.next_token()
         if not next_token or next_token.value != separators["LPAREN"]:
@@ -357,6 +367,13 @@ class ASTParser:
                 if not (param_type.value in Datatypes.all_types()):
                     self.syntax_error("Invalid parameter type", param_type)
                 
+                # Check for pointer operator
+                is_pointer = False
+                peek_token = self.peek_token()
+                if peek_token and peek_token._type == TokenType.OPERATOR and peek_token.value == operators["POINTER"]:
+                    self.next_token()  # Consume '*'
+                    is_pointer = True
+                
                 param_name = self.next_token()
                 if not param_name or param_name._type != TokenType.LITERAL:
                     self.syntax_error("Expected parameter name", param_name)
@@ -371,8 +388,8 @@ class ASTParser:
                         self.syntax_error("Expected default value", default_value_token)
                     default_value = default_value_token.value                    
                 
-                # Create parameter variable declaration
-                param = ASTNode.VariableDeclaration(param_type.value, param_name.value, default_value)
+                # Create parameter variable declaration - now with is_pointer flag
+                param = ASTNode.VariableDeclaration(param_type.value, param_name.value, default_value, False, is_pointer)
                 parameters.append(param)
                 
                 next_token = self.next_token()
