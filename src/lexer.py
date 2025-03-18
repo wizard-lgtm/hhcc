@@ -6,7 +6,7 @@ class TokenType:
     LITERAL = "LITERAL"
     COMMENT = "COMMENT"
     WHITESPACE = "WHITESPACE"
-    DIRECTIVES = "DIRECTIVES"
+    DIRECTIVE = "DIRECTIVE"
 
 # https://holyc-lang.com/docs/language-spec/learn-directives
 directives = {
@@ -207,6 +207,33 @@ class Lexer:
                 cursor += 1
                 continue
 
+            # Handle Directives (they start with #)
+            if current_chr == '#':
+                start = cursor
+                # Find the directive name
+                directive_start = cursor
+                while cursor < len(source_code) and source_code[cursor] != ' ' and source_code[cursor] != '\n':
+                    cursor += 1
+                
+                directive_name = source_code[directive_start:cursor]
+                
+
+                # Skip whitespace after directive name
+                while cursor < len(source_code) and source_code[cursor].isspace() and source_code[cursor] != '\n':
+                    cursor += 1
+                
+                # Capture the rest of the line as part of the directive
+                directive_start = cursor
+                while cursor < len(source_code) and source_code[cursor] != '\n':
+                    cursor += 1
+                
+                directive_value = source_code[start:cursor]
+                token = Token(TokenType.DIRECTIVE, directive_value, line, column)
+                tokens.append(token)
+                column += cursor - start
+                continue
+
+
             # Identifiers and Keywords
             if current_chr.isalpha() or current_chr == "_":  # Start of an identifier/keyword
                 start = cursor
@@ -278,25 +305,3 @@ class Lexer:
                     column += 1
 
         return tokens
-
-
-def test():
-    code = r"""
-U8 a;
-U64 b = 10;
-b = 4;
-U8 c = a + b + 5;
-U8 myfunc(U8 a){
-    U8 c = a + 5;
-
-    return c;
-}
-
-{} {} 
-    """
-    lexer = Lexer(source_code=code)
-    tokens = lexer.tokenize()
-    for token in tokens:
-        print(token)
-    
-test()
