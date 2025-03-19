@@ -188,9 +188,9 @@ class Token:
 
 
 class Lexer:
-    def __init__(self, source_code, compiler: "Compiler"):
-        self.source_code = source_code
+    def __init__(self, compiler: "Compiler"):
         self.compiler = compiler
+        self.source_code = self.compiler.src 
 
     def tokenize(self):
         source_code = self.source_code

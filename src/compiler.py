@@ -19,13 +19,15 @@ class Compiler:
     lexer: Lexer
     astparser: ASTParser
     
-    def __init__(self, file, debug=False, dump_ast=False, dump_tokens=False):
+    def __init__(self, file, debug=False, dump_ast=False, dump_tokens=False, dump_defines=False):
         self.file = os.path.abspath(file)
         self.file_directory = os.path.dirname(self.file)
         self.working_directory = os.getcwd()
         self.debug = debug
         self.dump_ast = dump_ast
         self.dump_tokens = dump_tokens
+        self.dump_defines = dump_defines
+        self.defines = {} # TODO! -> LLVM IR generate step (constant defines)
         
         if self.debug:
             print(f"Compiling file: {self.file}")
@@ -36,24 +38,29 @@ class Compiler:
             self.src = src.read()
         
         self.preprocessor = Preprocessor(self)
-        self.lexer = Lexer(self.src, self)
         self.astparser = ASTParser(self.src, self)
     
     def compile(self):
         # 1. Preprocessor
         if self.debug:
-            print("==== Running Preprocessor ====")
+            print("Running Preprocessor")
         processed_code = self.preprocessor.preprocess()
-        self.src = processed_code
+        
         if self.debug:
             print("==== Preprocessed Code ====")
             print(processed_code)
             print("============================")
         
+        if self.debug or self.dump_defines:
+            print("======Defines==========")
+            for items in self.defines.items():
+                print(items)
+            print("================")
         # Update the source after preprocessing
         self.src = processed_code
         
         # 2. Lexical Analysis
+        self.lexer = Lexer(self)
         if self.debug:
             print("==== Running Lexer ====")
         self.tokens = self.lexer.tokenize()
@@ -85,10 +92,11 @@ def parse_args():
     parser.add_argument("-d", "--debug", action="store_true", help="Enable debugging output")
     parser.add_argument("--dump-ast", action="store_true", help="Dump the AST tree")
     parser.add_argument("--dump-tokens", action="store_true", help="Dump the token list")
+    parser.add_argument("--dump-defines", action="store_true", help="Dump defines")
     
     return parser.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
-    compiler = Compiler(args.file, debug=args.debug, dump_ast=args.dump_ast, dump_tokens=args.dump_tokens)
+    compiler = Compiler(args.file, debug=args.debug, dump_ast=args.dump_ast, dump_tokens=args.dump_tokens, dump_defines=args.dump_defines)
     compiler.compile()
