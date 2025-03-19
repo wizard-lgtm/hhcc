@@ -31,3 +31,5 @@ I'm planning to release **version 0.1.0 by the end of April**.
 
 ## Contribution
 You can check issues page for any help, Thx! 
+
+our discord server: https://discord.gg/GY5C7XfgXz
