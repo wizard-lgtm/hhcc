@@ -327,7 +327,7 @@ class ASTParser:
                     self.next_token()  # Skip the semicolon
         
         # Check for rbrace
-        print(self.current_token())
+   
         if not self.current_token() or self.current_token().value != separators["RBRACE"]:
             self.syntax_error(f"Expected `}}` to close block that started at line {opening_token.line}", self.current_token() or self.tokens[-1])
             # No recovery possible here, the block is incomplete
@@ -801,7 +801,7 @@ class ASTParser:
        
         if current_token._type == TokenType.KEYWORD:
             next_token = self.peek_token()
-            print(Datatypes.all_types())
+          
             if current_token.value in Datatypes.all_types():
                 if next_token._type == TokenType.LITERAL and self.peek_token(2).value == separators["LPAREN"]:
                     return self.function_declaration()
