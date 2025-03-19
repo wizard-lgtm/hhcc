@@ -3,10 +3,12 @@
 # Licensed under MIT
 
 import argparse
-from typing import List
+
+import argparse
 from lexer import *
 from astparser2 import *
-from preprocessor import *
+from preprocessor import Preprocessor
+
 
 class Compiler:
     file = str
@@ -16,6 +18,10 @@ class Compiler:
     debug = bool
     dump_ast = bool
     dump_tokens = bool
+    preprocessor: Preprocessor
+    lexer: Lexer
+    astparser: ASTParser
+
 
     def __init__(self, file, debug=False, dump_ast=False, dump_tokens=False):
         self.file = file
@@ -24,20 +30,23 @@ class Compiler:
         self.dump_tokens = dump_tokens
         with open(file, "r") as src:
             self.src = src.read()
+        self.preprocessor = Preprocessor(self)
+        self.lexer = Lexer(self.src, self)
+        self.astparser = ASTParser(self.src, self)
 
     def compile(self):
         # 1. Preprocessor
         # TODO!
 
         # 2. Lexical Analysis
-        tokens = Lexer(self.src).tokenize()
+        self.tokens = self.lexer.tokenize()
         if self.debug or self.dump_tokens:
-            for token in tokens:
+            for token in self.tokens:
                 token.print()
 
         # 3. AST Parsing
-        parser = ASTParser(tokens, self.src)
-        nodes = parser.parse()
+        self.astparser.load_tokens(self.tokens)
+        nodes = self.astparser.parse()
         if self.debug or self.dump_ast:
             for node in nodes:
                 print(node)

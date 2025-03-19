@@ -1,3 +1,7 @@
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from compiler import Compiler  # Only for type hints
 class TokenType:
     KEYWORD = "KEYWORD"
     IDENTIFIER = "IDENTIFIER"
@@ -184,8 +188,9 @@ class Token:
 
 
 class Lexer:
-    def __init__(self, source_code):
+    def __init__(self, source_code, compiler: "Compiler"):
         self.source_code = source_code
+        self.compiler = compiler
 
     def tokenize(self):
         source_code = self.source_code

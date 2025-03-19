@@ -1,16 +1,24 @@
 from lexer import *
 from typing import List 
 from astnodes import *  
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from compiler import Compiler  # Only for type hints
 class ASTParser: 
     code: str
     index: int
     tokens: List[Token]
     nodes: List[ASTNode]
-    def __init__(self, tokens: List[Token], code: str):
+    def __init__(self, code: str, compiler: "Compiler"):
         self.code = code
         self.index = 0
-        self.tokens = tokens
+        self.tokens = []
         self.nodes = []
+        self.compiler = compiler
+
+    def load_tokens(self, tokens: List[Token]):
+        self.tokens = tokens
 
     def current_token(self):
         if self.index < len(self.tokens):
@@ -50,7 +58,7 @@ class ASTParser:
 
 
     def variable_declaration(self, user_typed=False):
-        print("Variable declaration")
+ 
         var_type = self.current_token()
         is_pointer = False
     
@@ -82,7 +90,7 @@ class ASTParser:
         
         # Check for assignment
         if next_token and next_token.value == operators["ASSIGN"]:
-            print("Assignment detected")
+
             # Move to value and parse expression
             self.next_token()  # Move past '='
             node.value = self.parse_expression()
@@ -92,7 +100,7 @@ class ASTParser:
         
         return node
     def variable_assignment(self):
-        print("Variable assignment")
+
         
         # First token should be the variable name
         var_name = self.current_token()
@@ -143,8 +151,7 @@ class ASTParser:
         return node
 
     def return_statement(self) -> ASTNode:
-        # Parse variable name
-        print("Return Statement")
+
 
         expression = None
         if self.current_token().value == keywords["RETURN"]:
@@ -673,7 +680,6 @@ class ASTParser:
         return ASTNode.Continue()
     
     def array_declaration(self, base_type, name, user_typed=False):
-        print("Array declaration")
         dimensions = []
         
         # Parse all dimensions
@@ -715,7 +721,6 @@ class ASTParser:
     
 
     def array_declaration(self, base_type, name, user_typed=False):
-        print("Array declaration")
         dimensions = []
         
         # Parse all dimensions
@@ -755,7 +760,7 @@ class ASTParser:
 
     
     def parse_array_initialization(self):
-        print("Array initialization")
+
         
         if not self.current_token() or self.current_token().value != separators["LBRACE"]:
             self.syntax_error("Expected '{' to start array initialization", self.current_token())
