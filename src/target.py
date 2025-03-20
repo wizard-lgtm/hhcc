@@ -41,7 +41,7 @@ class Target:
         wasm32 = 'wasm32'  # WebAssembly 32-bit architecture
         wasm64 = 'wasm64'  # WebAssembly 64-bit architecture
         x86 = 'x86'  # x86 32-bit architecture (Intel/AMD)
-        x86_64 = 'x86-64'  # x86 64-bit architecture (also known as x64)
+        x86_64 = 'x86_64'  # x86 64-bit architecture (also known as x64)
         xcore = 'xcore'  # XMOS XCore architecture (used in embedded systems)
         xtensa = 'xtensa'  # Tensilica Xtensa architecture (used in embedded and DSP applications)
 
@@ -60,12 +60,35 @@ class Target:
         
     class Abi:
         unknown = 'unknown'  # Default value for unknown ABI
-        # TODO! NO ABI SUPPORT
+        gnu = 'gnu'          # GNU ABI (used with Linux)
+        gnueabi = 'gnueabi'  # GNU EABI (Embedded ABI)
+        gnueabihf = 'gnueabihf'  # GNU EABI with hardware floating point
+        msvc = 'msvc'        # Microsoft Visual C++ ABI
+        android = 'android'  # Android ABI
+        musl = 'musl'        # Musl libc ABI
+        eabi = 'eabi'        # Embedded ABI
+        eabihf = 'eabihf'    # Embedded ABI with hardware floating point
+        cygnus = 'cygnus'    # Cygnus ABI (used with Cygwin)
+        newlib = 'newlib'    # Newlib ABI
+        mingw = 'mingw'      # MinGW ABI
+        
+    class Vendor:
+        unknown = 'unknown'  # Default value for unknown vendor
+        pc = 'pc'            # Personal Computer
+        apple = 'apple'      # Apple Inc.
+        ibm = 'ibm'          # IBM
+        nvidia = 'nvidia'    # NVIDIA
+        amd = 'amd'          # AMD
+        arm = 'arm'          # ARM
+        intel = 'intel'      # Intel
+        microsoft = 'microsoft'  # Microsoft
+        mips = 'mips'        # MIPS Technologies
+        none = 'none'        # No specific vendor
 
-    def __init__(self, arch: str, os: str = 'unknown', abi: str = 'unknown'):
+    def __init__(self, arch: str, os: str = 'unknown', vendor: str = 'unknown', abi: str = 'unknown'):
         """
-        Initialize a Target object with architecture, operating system, and optional ABI.
-        Default values for os and abi are 'unknown'.
+        Initialize a Target object with architecture, vendor, operating system, and optional ABI.
+        Default values for vendor, os and abi are 'unknown'.
         """
         if arch not in vars(self.Arch).values():
             raise ValueError(f"Invalid architecture: {arch}")
@@ -73,43 +96,60 @@ class Target:
             raise ValueError(f"Invalid OS: {os}")
         
         self.arch = arch
+        self.vendor = vendor
         self.os = os
         self.abi = abi
 
     def get_llvm_triple(self) -> str:
         """
-        Generate the LLVM triple based on the architecture, OS, and ABI.
-        Format: <arch>-<os>-<abi>
+        Generate the LLVM triple based on the architecture, vendor, OS, and ABI.
+        Format: <arch>-<vendor>-<os>-<abi>
+        If vendor or abi is 'unknown', they are omitted from the string.
         """
-        triple = f"{self.arch}-{self.os}-{self.abi}"
-        return triple
 
-    
-    @staticmethod
+        return f"{self.arch}-{self.vendor}-{self.os}-{self.abi}"
+
     def from_string(target_str):
         """
-        Parses a target string in the format '<arch>-<os>-<abi>' and returns a Target instance.
+        Parses a target string in one of the formats:
+        - '<arch>-<vendor>-<os>-<abi>'
+        - '<arch>-<vendor>-<os>'
+        - '<arch>-<os>-<abi>'
+        - '<arch>-<os>'
+        and returns a Target instance.
         """
         parts = target_str.split('-')
         
-        if len(parts) == 3:
-            arch, os, abi = parts
+        if len(parts) == 4:
+            arch, vendor, os, abi = parts
+        elif len(parts) == 3:
+            # Could be either arch-vendor-os or arch-os-abi
+            # Try to determine which by checking if the second part is a known vendor
+            arch = parts[0]
+            if parts[1] in vars(Target.Vendor).values():
+                vendor, os = parts[1], parts[2]
+                abi = 'unknown'
+            else:
+                os, abi = parts[1], parts[2]
+                vendor = 'unknown'
         elif len(parts) == 2:
             arch, os = parts
+            vendor = 'unknown'
             abi = 'unknown'
         else:
             raise ValueError(f"Invalid target string format: {target_str}")
         
-        # Validate the architecture, OS, and ABI
+        # Validate the architecture and OS
         if arch not in vars(Target.Arch).values():
             raise ValueError(f"Invalid architecture: {arch}")
         if os not in vars(Target.Os).values():
             raise ValueError(f"Invalid OS: {os}")
         
         # Return the constructed Target
-        return Target(arch=arch, os=os, abi=abi)
+        return Target(arch=arch, vendor=vendor, os=os, abi=abi)
     
     def __str__(self):
         return self.get_llvm_triple()
+    
     def __repr__(self):
         return str(self)

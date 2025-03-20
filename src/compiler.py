@@ -7,6 +7,8 @@ from lexer import *
 from astparser2 import *
 from preprocessor import Preprocessor
 from target import Target
+from codegen import Codegen
+
 import platform 
 class Compiler:
     file = str
@@ -16,12 +18,13 @@ class Compiler:
     debug = bool
     dump_ast = bool
     dump_tokens = bool
+    dump_llvmir = bool
     preprocessor: Preprocessor
     lexer: Lexer
     astparser: ASTParser
     target: Target
     
-    def __init__(self, file, debug=False, dump_ast=False, dump_tokens=False, dump_defines=False, dump_preprocessed=False, target=None):
+    def __init__(self, file, debug=False, dump_ast=False, dump_tokens=False, dump_defines=False, dump_preprocessed=False, dump_llvmir=False, triple=None, target=None):
         self.version = "0.0.4"
         self.file = os.path.abspath(file)
         self.file_directory = os.path.dirname(self.file)
@@ -31,7 +34,9 @@ class Compiler:
         self.dump_tokens = dump_tokens
         self.dump_defines = dump_defines
         self.dump_preprocessed = dump_preprocessed
+        self.dump_llvmir = dump_llvmir
         self.defines = {} # TODO! -> LLVM IR generate step (constant defines)
+        self.triple = triple
         
         print(f"hhcc compiler version: {self.version}")
 
@@ -47,10 +52,9 @@ class Compiler:
         self.astparser = ASTParser(self.src, self)
 
         # Set the target architecture, OS, and ABI
-        if target:
-            self.target = target
-        else:
-            self.target = Target(platform.machine())  # Default to the native target
+
+        self.target = target
+
         if self.debug: 
             print(f"Selected Target: {self.target}")
     
@@ -96,7 +100,15 @@ class Compiler:
             print("==================")
         
         # 4. LLVM IR Generation
-        # TODO!
+        if self.debug:
+            print("==== Running Codegen ====")
+        codegen = Codegen(self)
+        llvmir = codegen.gen()
+        if self.dump_llvmir:
+            print("==== Generated LLVM IR Code ====")
+            print(llvmir)
+            print("==================")
+
         print("Done!")
         return nodes
 
@@ -108,7 +120,9 @@ def parse_args():
     parser.add_argument("-dt", "--dump-tokens", action="store_true", help="Dump the token list")
     parser.add_argument("-df", "--dump-defines", action="store_true", help="Dump defines")
     parser.add_argument("-dp", "--dump-preprocessed", action="store_true", help="Dump Preprocessed Code")
+    parser.add_argument("-dl", "--dump-llvmir", action="store_true", help="Dump llvm_ir")
     parser.add_argument("--target", help="Target in the format <arch>-<os>-<abi>. Default is native target.", default=None)
+    parser.add_argument("--triple", help="Target in the format <arch>-<os>-<abi>. Default is native target.", default=None)
 
     return parser.parse_args()
 
@@ -126,5 +140,5 @@ if __name__ == "__main__":
             exit(1)
 
     # Create the compiler instance with the parsed arguments
-    compiler = Compiler(args.file, debug=args.debug, dump_ast=args.dump_ast, dump_tokens=args.dump_tokens, dump_defines=args.dump_defines, target=target)
+    compiler = Compiler(args.file, debug=args.debug, dump_ast=args.dump_ast, dump_tokens=args.dump_tokens, dump_defines=args.dump_defines, dump_preprocessed=args.dump_preprocessed, dump_llvmir=args.dump_llvmir, triple=args.triple, target=target)
     compiler.compile()
