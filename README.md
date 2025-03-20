@@ -33,3 +33,5 @@ I'm planning to release **version 0.1.0 by the end of April**.
 You can check issues page for any help, Thx! 
 
 our discord server: https://discord.gg/GY5C7XfgXz
+# Prerequirements
+sudo apt install python3-llvmlite
