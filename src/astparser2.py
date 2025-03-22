@@ -409,7 +409,11 @@ class ASTParser:
         next_token = self.next_token()
         if next_token is None or next_token.value not in [separators["SEMICOLON"], separators["LBRACE"]]:
             self.syntax_error("Expected ';' or '{'", next_token)
-        body = self.block()
+        if next_token.value != separators["SEMICOLON"]:
+            body = self.block()
+        else:
+            body = None
+            self.next_token()
 
         return ASTNode.FunctionDefinition(func_name, func_return_type, body, parameters)
 
