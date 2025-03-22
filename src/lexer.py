@@ -97,16 +97,18 @@ assignment_operators = {
 }
 
 class Datatypes:
-    F64 = "F64"      # 64-bit floating point type, 8 bytes wide.
-    U64 = "U64"      # Unsigned 64-bit integer type, 8 bytes wide.
-    I64 = "I64"      # Signed 64-bit integer type, 8 bytes wide.
-    U32 = "U32"      # Unsigned 32-bit integer type, 4 bytes wide.
-    I32 = "I32"      # Signed 32-bit integer type, 4 bytes wide.
-    U16 = "U16"      # Unsigned 16-bit integer type, 2 bytes wide.
-    I16 = "I16"      # Signed 16-bit integer type, 2 bytes wide.
-    U8 = "U8"        # Unsigned 8-bit integer type, 1 byte wide.
+    U8 = "U8"
+    U16 = "U16"
+    U32 = "U32"
+    U64 = "U64"
+    I8 = "I8"
+    I16 = "I16"
+    I32 = "I32"
+    I64 = "I64"
     BOOL = "Bool"    # Boolean type, 1 byte wide (should be 0 or 1).
     U0 = "U0"        # Void type, has no size.
+    F64 = "F64"
+    F32 = "F32"
     
     user_defined_types = {}
 
