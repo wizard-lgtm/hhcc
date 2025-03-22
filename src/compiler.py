@@ -93,6 +93,7 @@ class Compiler:
             print("==== Running AST Parser ====")
         self.astparser.load_tokens(self.tokens)
         nodes = self.astparser.parse()
+        self.astnodes = nodes
         if self.dump_ast:
             print("==== AST Nodes ====")
             for node in nodes:
