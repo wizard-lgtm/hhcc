@@ -15,6 +15,46 @@ class NodeType(Enum):
     ARRAY_ACCESS = auto()
     STRUCT_ACCESS = auto()
     REFERENCE = auto()
+
+class ASTNodeType(Enum):
+    # Expression nodes
+    EXPRESSION = auto()
+    
+    # Block structure
+    BLOCK = auto()
+    
+    # Variable operations
+    VARIABLE_DECLARATION = auto()
+    VARIABLE_ASSIGNMENT = auto()
+    
+    # Control flow
+    RETURN = auto()
+    IF_STATEMENT = auto()
+    ELSE_STATEMENT = auto()
+    WHILE_LOOP = auto()
+    FOR_LOOP = auto()
+    BREAK = auto()
+    CONTINUE = auto()
+    
+    # Function related
+    FUNCTION_DEFINITION = auto()
+    FUNCTION_CALL = auto()
+    
+    # Classes and custom types
+    CLASS_DEFINITION = auto()
+    UNION_DEFINITION = auto()
+    
+    # Arrays
+    ARRAY_DECLARATION = auto()
+    ARRAY_INITIALIZATION = auto()
+    
+    # Pointers and references
+    POINTER = auto()
+    REFERENCE = auto()
+    
+    # Metadata
+    COMMENT = auto()
+
 class ASTNode:
     class ExpressionNode:
         def __init__(self, node_type, value=None, left=None, right=None, op=None):
