@@ -29,6 +29,26 @@ The project is still under heavy development and isn't ready for use yet. Please
 
 I'm planning to release **version 0.1.0 by the end of April**.
 
+
+# Holy Holy C Programming Language Reference 
+
+## 1. Introduction
+
+Holy Holy C Programming Language is the superset of Holy C Programming language. That means you can compile Holy C code inside of it with new features.
+
+## 2. What's new?
+
+- LLVM Based Compiler
+- Cross platform standart library
+- C Abi compatibility
+- Class Methods
+
+
+
+  
+
+
+
 ## Contribution
 You can check issues page for any help, Thx! 
 
