@@ -57,7 +57,7 @@ class ASTNodeType(Enum):
 
 class ASTNode:
     class ExpressionNode:
-        def __init__(self, node_type, value=None, left=None, right=None, op=None):
+        def __init__(self, node_type: NodeType, value=None, left=None, right=None, op=None):
             self.node_type = node_type
             self.value = value  # For literals and identifiers
             self.left = left    # For binary and unary ops
