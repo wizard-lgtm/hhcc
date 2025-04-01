@@ -165,9 +165,50 @@ class Codegen:
             for body_node in node.body.nodes:
                 self.process_node(body_node, builder=builder)
 
+    def handle_binary_expression(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_size, **kwargs):
+        # Parse the operator
+        operator = node.op
 
-    def handle_expression(self, node):
-        pass
+        # evaluate left and right expressions to get LLVM values
+        left = self.handle_expression(node.left, builder, var_size)
+        right = self.handle_expression(node.right, builder, var_size)
+         
+        if operator == operators["ADD"]:
+            return builder.add(left, right, name="sum")
+        elif operator == operators["SUBTRACT"]:
+            return builder.sub(left, right, name="sub")
+
+
+    def handle_primary_expression(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
+        if node.node_type == NodeType.REFERENCE and node.value == '&': 
+            # TODO! we don't handle pointers now
+            return self.handle_pointer(node, builder)
+        elif node.node_type == NodeType.BINARY_OP:
+            return self.handle_binary_expression(node, builder, var_type)
+        elif node.node_type == NodeType.LITERAL:
+            # Create an LLVM constant integer from the literal value
+            return ir.Constant(var_type, int(node.value))
+        # Handle other node types...
+
+
+    def handle_expression(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
+
+        # Define operator precedence
+        precedence_map = {
+            '+': 1, '-': 1,  # Addition, subtraction
+            '*': 2, '/': 2, '%': 2,  # Multiplication, division, modulo
+            '<': 3, '>': 3, '<=': 3, '>=': 3,  # Comparison
+            '==': 4, '!=': 4,  # Equality
+            '&&': 5,  # Logical AND
+            '||': 6,  # Logical OR
+        }
+        
+        print(node)
+
+        # Start with parsing a primary expression
+        return self.handle_primary_expression(node, builder, var_type)
+
+        
 
     def handle_block(self, node):
         pass
@@ -175,7 +216,13 @@ class Codegen:
     def handle_variable_declaration(self, node: ASTNode.VariableDeclaration, builder: ir.IRBuilder, **kwargs):
         # local variable 
         var = builder.alloca(ir.IntType(32), name=node.name)  
-        builder.store(ir.Constant(ir.IntType(32), node.value.value), var) 
+
+        llvm_type = self.turn_variable_type_to_llvm_type(node.var_type)
+
+        # Parse value from expression
+        value = self.handle_expression(node.value, builder, llvm_type)
+
+        builder.store(ir.Constant(ir.IntType(32), value), var) 
 
         # Load the local variable's value
         local_value = builder.load(var, name="loaded_local")
