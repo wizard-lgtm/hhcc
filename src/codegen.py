@@ -140,7 +140,8 @@ class Codegen:
 
     def handle_function_definition(self, node: ASTNode.FunctionDefinition, **kwargs):
         name = node.name
-        return_type = self.turn_variable_type_to_llvm_type(node.return_type)
+        return_type = Datatypes.to_llvm_type(node.return_type)
+        print(f"RETURN TYPE: {node.return_type}")
 
         node_params: List[ASTNode.VariableDeclaration] = node.parameters
 
@@ -187,6 +188,7 @@ class Codegen:
             return self.handle_binary_expression(node, builder, var_type)
         elif node.node_type == NodeType.LITERAL:
             # Create an LLVM constant integer from the literal value
+            # Find the variable from variables and get their value 
             return ir.Constant(var_type, int(node.value))
         # Handle other node types...
 
@@ -215,14 +217,16 @@ class Codegen:
 
     def handle_variable_declaration(self, node: ASTNode.VariableDeclaration, builder: ir.IRBuilder, **kwargs):
         # local variable 
-        var = builder.alloca(ir.IntType(32), name=node.name)  
+        var_type = Datatypes.to_llvm_type(node.var_type)
+        print(var_type)
+        var = builder.alloca(var_type, name=node.name)  
 
         llvm_type = self.turn_variable_type_to_llvm_type(node.var_type)
 
         # Parse value from expression
         value = self.handle_expression(node.value, builder, llvm_type)
 
-        builder.store(ir.Constant(ir.IntType(32), value), var) 
+        builder.store(ir.Constant(var_type, value), var) 
 
         # Load the local variable's value
         local_value = builder.load(var, name="loaded_local")
@@ -232,9 +236,16 @@ class Codegen:
     def handle_variable_assignment(self, node, **kwargs):
         pass
 
-    def handle_return(self, node, **kwargs):
-        pass
-
+    def handle_return(self, node: ASTNode.Return, builder: ir.IRBuilder, **kwargs):
+        # If the value is a function
+        # Get return type
+        function_return_type = builder.function.function_type.return_type
+        if node.expression:
+            return_value = self.handle_expression(node.expression, builder, function_return_type)
+            builder.ret(return_value)
+        else:
+            builder.ret_void()
+            
     def handle_if_statement(self, node, **kwargs):
         pass
 
