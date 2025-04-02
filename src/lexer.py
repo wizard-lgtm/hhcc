@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING
 
+from llvmlite import ir
+
 if TYPE_CHECKING:
     from compiler import Compiler  # Only for type hints
 class TokenType:
@@ -126,6 +128,42 @@ class Datatypes:
     @classmethod
     def add_type(cls, name, type_def):
         cls.user_defined_types[name] = type_def
+
+
+    @classmethod
+    def to_llvm_type(cls, type_name: str):
+        """Convert the type name to the corresponding llvmlite type."""
+        # First check if the type is a user-defined type
+        if type_name in cls.user_defined_types:
+            return cls.user_defined_types[type_name]
+        
+        # Otherwise, match the type name to the corresponding llvmlite type
+        if type_name == cls.U8:
+            return ir.IntType(8)
+        elif type_name == cls.U16:
+            return ir.IntType(16)
+        elif type_name == cls.U32:
+            return ir.IntType(32)
+        elif type_name == cls.U64:
+            return ir.IntType(64)
+        elif type_name == cls.I8:
+            return ir.IntType(8)
+        elif type_name == cls.I16:
+            return ir.IntType(16)
+        elif type_name == cls.I32:
+            return ir.IntType(32)
+        elif type_name == cls.I64:
+            return ir.IntType(64)
+        elif type_name == cls.BOOL:
+            return ir.IntType(1)  # Boolean is typically 1 bit in LLVM IR
+        elif type_name == cls.U0:
+            return ir.VoidType()  # Void type has no size
+        elif type_name == cls.F64:
+            return ir.DoubleType()  # Double precision float
+        elif type_name == cls.F32:
+            return ir.FloatType()  # Single precision float
+        else:
+            raise ValueError(f"Unknown type: {type_name}")
 
 keywords = {
     "F64": "F64",        # 64bit floating point type. 8bytes wide.
