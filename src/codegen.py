@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
 class Codegen:
     def __init__(self, compiler: "Compiler"):
+        self.symbol_table = {} 
         self.compiler = compiler
         self.astnodes = compiler.astnodes
         if self.compiler.triple:
@@ -139,6 +140,11 @@ class Codegen:
         return llvm_type
 
     def handle_function_definition(self, node: ASTNode.FunctionDefinition, **kwargs):
+        outer_scope = self.symbol_table
+
+        # Create a new symbol table for this function
+        self.symbol_table = {}
+
         name = node.name
         return_type = Datatypes.to_llvm_type(node.return_type)
         print(f"RETURN TYPE: {node.return_type}")
@@ -166,6 +172,10 @@ class Codegen:
             for body_node in node.body.nodes:
                 self.process_node(body_node, builder=builder)
 
+    
+        # Restore the outer scope when function processing is complete
+        self.symbol_table = outer_scope
+
     def handle_binary_expression(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_size, **kwargs):
         # Parse the operator
         operator = node.op
@@ -179,20 +189,27 @@ class Codegen:
         elif operator == operators["SUBTRACT"]:
             return builder.sub(left, right, name="sub")
 
+    def get_variable_value(name: str):
+        # Find variable and get it's value
+        pass
 
     def handle_primary_expression(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
         if node.node_type == NodeType.REFERENCE and node.value == '&': 
-            # TODO! we don't handle pointers now
             return self.handle_pointer(node, builder)
         elif node.node_type == NodeType.BINARY_OP:
             return self.handle_binary_expression(node, builder, var_type)
         elif node.node_type == NodeType.LITERAL:
-            # Create an LLVM constant integer from the literal value
-            # Find the variable from variables and get their value 
-            return ir.Constant(var_type, int(node.value))
-        # Handle other node types...
-
-
+            # First check if this is actually a variable reference
+            if node.value in self.symbol_table:
+                # It's a variable name, load its value
+                var_ptr = self.symbol_table[node.value]
+                return builder.load(var_ptr, name=f"load_{node.value}")
+            else:
+                # It's an actual literal value, create a constant
+                try:
+                    return ir.Constant(var_type, int(node.value))
+                except ValueError:
+                    raise ValueError(f"Invalid literal or undefined variable: '{node.value}'")
     def handle_expression(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
 
         # Define operator precedence
@@ -221,12 +238,20 @@ class Codegen:
         print(var_type)
         var = builder.alloca(var_type, name=node.name)  
 
+        # Store variable in symbol table
+        self.symbol_table[node.name] = var
+        # Handle initial value if present
+        if node.value:
+            llvm_type = Datatypes.to_llvm_type(node.var_type)
+            value = self.handle_expression(node.value, builder, llvm_type)
+            builder.store(value, var)
+
         llvm_type = self.turn_variable_type_to_llvm_type(node.var_type)
 
         # Parse value from expression
         value = self.handle_expression(node.value, builder, llvm_type)
 
-        builder.store(ir.Constant(var_type, value), var) 
+        builder.store(value, var) 
 
         # Load the local variable's value
         local_value = builder.load(var, name="loaded_local")
