@@ -24,7 +24,7 @@ class Compiler:
     astparser: ASTParser
     target: Target
     
-    def __init__(self, file, debug=False, dump_ast=False, dump_tokens=False, dump_defines=False, dump_preprocessed=False, dump_llvmir=False, triple=None, target=None):
+    def __init__(self, file, debug=False, dump_ast=False, dump_tokens=False, dump_defines=False, dump_preprocessed=False, dump_llvmir=False, triple=None, target=None, output_file=None):
         self.version = "0.0.4"
         self.file = os.path.abspath(file)
         self.file_directory = os.path.dirname(self.file)
@@ -37,6 +37,7 @@ class Compiler:
         self.dump_llvmir = dump_llvmir
         self.defines = {} # TODO! -> LLVM IR generate step (constant defines)
         self.triple = triple
+        self.output_file = output_file
         
         print(f"hhcc compiler version: {self.version}")
 
@@ -105,6 +106,13 @@ class Compiler:
             print("==== Running Codegen ====")
         codegen = Codegen(self)
         llvmir = codegen.gen()
+        
+        # Output LLVM IR to file if specified
+        if self.output_file:
+            with open(self.output_file, 'w') as f:
+                f.write(str(llvmir))
+            print(f"LLVM IR written to {self.output_file}")
+        
         if self.dump_llvmir:
             print("==== Generated LLVM IR Code ====")
             print(llvmir)
@@ -124,6 +132,9 @@ def parse_args():
     parser.add_argument("-dl", "--dump-llvmir", action="store_true", help="Dump llvm_ir")
     parser.add_argument("--target", help="Target in the format <arch>-<os>-<abi>. Default is native target.", default=None)
     parser.add_argument("--triple", help="Target in the format <arch>-<os>-<abi>. Default is native target.", default=None)
+    parser.add_argument("-S", action="store_true", help="Compile only; do not assemble or link")
+    parser.add_argument("-emit-llvm", action="store_true", help="Generate LLVM IR code")
+    parser.add_argument("-o", "--output", help="Output file name", default=None)
 
     return parser.parse_args()
 
@@ -140,6 +151,16 @@ if __name__ == "__main__":
             print(f"Error parsing target: {e}")
             exit(1)
 
+    # If -S and -emit-llvm are specified, set the output file
+    output_file = None
+    if args.S and args.emit_llvm:
+        output_file = args.output if args.output else "output.ll"
+        # Force dump_llvmir to be True as we need to generate LLVM IR
+        args.dump_llvmir = True
+
     # Create the compiler instance with the parsed arguments
-    compiler = Compiler(args.file, debug=args.debug, dump_ast=args.dump_ast, dump_tokens=args.dump_tokens, dump_defines=args.dump_defines, dump_preprocessed=args.dump_preprocessed, dump_llvmir=args.dump_llvmir, triple=args.triple, target=target)
+    compiler = Compiler(args.file, debug=args.debug, dump_ast=args.dump_ast, 
+                        dump_tokens=args.dump_tokens, dump_defines=args.dump_defines, 
+                        dump_preprocessed=args.dump_preprocessed, dump_llvmir=args.dump_llvmir, 
+                        triple=args.triple, target=target, output_file=output_file)
     compiler.compile()
