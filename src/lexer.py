@@ -6,7 +6,6 @@ if TYPE_CHECKING:
     from compiler import Compiler  # Only for type hints
 class TokenType:
     KEYWORD = "KEYWORD"
-    IDENTIFIER = "IDENTIFIER"
     SEPARATOR = "SEPERATOR"
     OPERATOR = "OPERATOR"
     LITERAL = "LITERAL"
