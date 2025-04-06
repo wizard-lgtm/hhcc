@@ -176,18 +176,134 @@ class Codegen:
         # Restore the outer scope when function processing is complete
         self.symbol_table = outer_scope
 
-    def handle_binary_expression(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_size, **kwargs):
+
+    def handle_binary_expression(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
         # Parse the operator
         operator = node.op
 
-        # evaluate left and right expressions to get LLVM values
-        left = self.handle_expression(node.left, builder, var_size)
-        right = self.handle_expression(node.right, builder, var_size)
-         
+        # Determine type characteristics
+        is_signed = False
+        is_float = False
+        is_integer = False
+        
+        # Try to get type information in different ways
+        if hasattr(node, "var_type") and node.var_type:
+            is_signed = Datatypes.is_signed_type(node.var_type)
+            is_float = Datatypes.is_float_type(node.var_type)
+            is_integer = Datatypes.is_integer_type(node.var_type)
+        elif hasattr(var_type, "datatype_name") and var_type.datatype_name:
+            is_signed = Datatypes.is_signed_type(var_type.datatype_name)
+            is_float = Datatypes.is_float_type(var_type.datatype_name)
+            is_integer = Datatypes.is_integer_type(var_type.datatype_name)
+        else:
+            # Default values based on LLVM type if we can't determine from name
+            is_signed = isinstance(var_type, ir.IntType) and var_type in [
+                self.type_map[t] for t in [Datatypes.I8, Datatypes.I16, Datatypes.I32, Datatypes.I64]
+            ]
+            is_float = isinstance(var_type, (ir.FloatType, ir.DoubleType))
+            is_integer = isinstance(var_type, ir.IntType)
+
+        # evaluate left and right expressions
+        left = self.handle_expression(node.left, builder, var_type)
+        right = self.handle_expression(node.right, builder, var_type)
+        
+        # Handle operations based on operator type
         if operator == operators["ADD"]:
             return builder.add(left, right, name="sum")
         elif operator == operators["SUBTRACT"]:
             return builder.sub(left, right, name="sub")
+        elif operator == operators["MULTIPLY"]:
+            return builder.mul(left, right, name="mul")
+        elif operator == operators["DIVIDE"]:
+            # For integer division
+            if is_integer:
+                if is_signed:
+                    return builder.sdiv(left, right, name="sdiv")
+                else:
+                    return builder.udiv(left, right, name="udiv")
+            # For floating point division
+            else:
+                return builder.fdiv(left, right, name="fdiv")
+        elif operator == operators["MODULO"]:
+            # For integer modulo
+            if is_integer:
+                if is_signed:
+                    return builder.srem(left, right, name="srem")
+                else:
+                    return builder.urem(left, right, name="urem")
+            # For floating point modulo
+            else:
+                return builder.frem(left, right, name="frem")
+        elif operator == operators["BITWISE_AND"]:
+            return builder.and_(left, right, name="and")
+        elif operator == operators["BITWISE_OR"]:
+            return builder.or_(left, right, name="or")
+        elif operator == operators["BITWISE_XOR"]:
+            return builder.xor(left, right, name="xor")
+        elif operator == operators["SHIFT_LEFT"]:
+            return builder.shl(left, right, name="shl")
+        elif operator == operators["SHIFT_RIGHT"]:
+            # Arithmetic shift for signed types
+            if is_signed:
+                return builder.ashr(left, right, name="ashr")
+            # Logical shift for unsigned types
+            else:
+                return builder.lshr(left, right, name="lshr")
+        # Comparison operators
+        elif operator == operators["EQUAL"]:
+            if is_integer:
+                return builder.icmp_signed('==', left, right, name="ieq") if is_signed else builder.icmp_unsigned('==', left, right, name="ieq") 
+            else:
+                return builder.fcmp_ordered('==', left, right, name="feq")
+        elif operator == operators["NOT_EQUAL"]:
+            if is_integer:
+                return builder.icmp_signed('!=', left, right, name="ine") if is_signed else builder.icmp_unsigned('!=', left, right, name="ine")
+            else:
+                return builder.fcmp_ordered('!=', left, right, name="fne")
+        elif operator == operators["LESS_THAN"]:
+            if is_integer:
+                if is_signed:
+                    return builder.icmp_signed('<', left, right, name="slt")
+                else:
+                    return builder.icmp_unsigned('<', left, right, name="ult")
+            else:
+                return builder.fcmp_ordered('<', left, right, name="flt")
+        elif operator == operators["LESS_OR_EQUAL"]:
+            if is_integer:
+                if is_signed:
+                    return builder.icmp_signed('<=', left, right, name="sle")
+                else:
+                    return builder.icmp_unsigned('<=', left, right, name="ule")
+            else:
+                return builder.fcmp_ordered('<=', left, right, name="fle")
+        elif operator == operators["GREATER_THAN"]:
+            if is_integer:
+                if is_signed:
+                    return builder.icmp_signed('>', left, right, name="sgt")
+                else:
+                    return builder.icmp_unsigned('>', left, right, name="ugt")
+            else:
+                return builder.fcmp_ordered('>', left, right, name="fgt")
+        elif operator == operators["GREATER_OR_EQUAL"]:
+            if is_integer:
+                if is_signed:
+                    return builder.icmp_signed('>=', left, right, name="sge")
+                else:
+                    return builder.icmp_unsigned('>=', left, right, name="uge")
+            else:
+                return builder.fcmp_ordered('>=', left, right, name="fge")
+        elif operator == operators["LOGICAL_AND"]:
+            # Perform boolean conversion if needed
+            left_bool = left if left.type.width == 1 else builder.icmp_unsigned('!=', left, ir.Constant(left.type, 0), name="tobool_left")
+            right_bool = right if right.type.width == 1 else builder.icmp_unsigned('!=', right, ir.Constant(right.type, 0), name="tobool_right")
+            return builder.and_(left_bool, right_bool, name="land")
+        elif operator == operators["LOGICAL_OR"]:
+            # Perform boolean conversion if needed
+            left_bool = left if left.type.width == 1 else builder.icmp_unsigned('!=', left, ir.Constant(left.type, 0), name="tobool_left")
+            right_bool = right if right.type.width == 1 else builder.icmp_unsigned('!=', right, ir.Constant(right.type, 0), name="tobool_right")
+            return builder.or_(left_bool, right_bool, name="lor")
+        else:
+            raise ValueError(f"Unsupported binary operator: {operator}")
 
     def get_variable_value(name: str):
         # Find variable and get it's value
@@ -211,23 +327,33 @@ class Codegen:
                 except ValueError:
                     raise ValueError(f"Invalid literal or undefined variable: '{node.value}'")
     def handle_expression(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
-
-        # Define operator precedence
-        precedence_map = {
-            '+': 1, '-': 1,  # Addition, subtraction
-            '*': 2, '/': 2, '%': 2,  # Multiplication, division, modulo
-            '<': 3, '>': 3, '<=': 3, '>=': 3,  # Comparison
-            '==': 4, '!=': 4,  # Equality
-            '&&': 5,  # Logical AND
-            '||': 6,  # Logical OR
-        }
-        
-        print(node)
-
-        # Start with parsing a primary expression
-        return self.handle_primary_expression(node, builder, var_type)
-
-        
+        if node is None:
+            return None
+            
+        if node.node_type == NodeType.BINARY_OP:
+            return self.handle_binary_expression(node, builder, var_type)
+        elif node.node_type == NodeType.REFERENCE and node.value == '&':
+            return self.handle_pointer(node, builder)
+        elif node.node_type == NodeType.LITERAL:
+            # First check if this is actually a variable reference
+            if node.value in self.symbol_table:
+                # It's a variable name, load its value
+                var_ptr = self.symbol_table[node.value]
+                return builder.load(var_ptr, name=f"load_{node.value}")
+            else:
+                # It's an actual literal value, create a constant
+                try:
+                    # Handle different literal types based on var_type
+                    if isinstance(var_type, ir.IntType):
+                        return ir.Constant(var_type, int(node.value))
+                    elif isinstance(var_type, (ir.FloatType, ir.DoubleType)):
+                        return ir.Constant(var_type, float(node.value))
+                    else:
+                        raise ValueError(f"Unsupported literal type for value: '{node.value}'")
+                except ValueError:
+                    raise ValueError(f"Invalid literal or undefined variable: '{node.value}'")
+        else:
+            raise ValueError(f"Unsupported expression node type: {node.node_type}")
 
     def handle_block(self, node):
         pass

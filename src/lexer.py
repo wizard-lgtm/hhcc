@@ -112,6 +112,21 @@ class Datatypes:
     F32 = "F32"
     
     user_defined_types = {}
+    def __init__(self):
+        self.type_info = {
+        Datatypes.BOOL: {"type": ir.IntType(1), "signed": False},
+        Datatypes.U8: {"type": ir.IntType(8), "signed": False},
+        Datatypes.U16: {"type": ir.IntType(16), "signed": False},
+        Datatypes.U32: {"type": ir.IntType(32), "signed": False},
+        Datatypes.U64: {"type": ir.IntType(64), "signed": False},
+        Datatypes.I8: {"type": ir.IntType(8), "signed": True},
+        Datatypes.I16: {"type": ir.IntType(16), "signed": True},
+        Datatypes.I32: {"type": ir.IntType(32), "signed": True},
+        Datatypes.I64: {"type": ir.IntType(64), "signed": True},
+        Datatypes.U0: {"type": ir.VoidType(), "signed": False},
+        Datatypes.F32: {"type": ir.FloatType(), "signed": True},
+        Datatypes.F64: {"type": ir.DoubleType(), "signed": True}
+    }
 
     @classmethod
     def all_types(cls):
@@ -130,7 +145,48 @@ class Datatypes:
 
 
     @classmethod
-    def to_llvm_type(cls, type_name: str):
+    def get_llvm_type(self, type_name: str):
+        if type_name in self.type_info:
+            return self.type_info[type_name]["type"]
+        # Handle pointer and other types as before
+        elif type_name.endswith('*'):
+            base_type = self.get_llvm_type(type_name[:-1])
+            return ir.PointerType(base_type)
+        else:
+            print("Non-Primitive types not implemented. Returning a generic type (U8*)")
+            return ir.PointerType(ir.IntType(8))
+
+
+    @classmethod
+    def is_signed_type(cls, type_name: str) -> bool:
+        """Determine if a type is signed."""
+        if not type_name:
+            return False  # Default to unsigned if type_name is None or empty
+        if type_name.endswith('*'):
+            return False  # Pointers are never signed
+        return type_name.startswith("I") or type_name.startswith("F")
+
+    @classmethod
+    def is_integer_type(cls, type_name: str) -> bool:
+        """Determine if a type is an integer type."""
+        if not type_name:
+            return True  # Default to integer if type_name is None or empty
+        if type_name.endswith('*'):
+            return False  # Pointers are not integer types
+        return type_name.startswith("I") or type_name.startswith("U") or type_name == cls.BOOL
+
+    @classmethod
+    def is_float_type(cls, type_name: str) -> bool:
+        """Determine if a type is a floating point type."""
+        if not type_name:
+            return False  # Default to not float if type_name is None or empty
+        return type_name.startswith("F")
+    @classmethod
+    def is_float_type(cls, type_name: str) -> bool:
+        return type_name.startswith("F")
+
+    @classmethod
+    def to_llvm_type(cls, type_name: str) -> ir.Type:
         """Convert the type name to the corresponding llvmlite type."""
         # First check if the type is a user-defined type
         if type_name in cls.user_defined_types:
@@ -230,6 +286,23 @@ class Lexer:
     def __init__(self, compiler: "Compiler"):
         self.compiler = compiler
         self.source_code = self.compiler.src 
+
+        self.type_info = {
+            Datatypes.BOOL: {"type": ir.IntType(1), "signed": False},
+            Datatypes.U8: {"type": ir.IntType(8), "signed": False},
+            Datatypes.U16: {"type": ir.IntType(16), "signed": False},
+            Datatypes.U32: {"type": ir.IntType(32), "signed": False},
+            Datatypes.U64: {"type": ir.IntType(64), "signed": False},
+            Datatypes.I8: {"type": ir.IntType(8), "signed": True},
+            Datatypes.I16: {"type": ir.IntType(16), "signed": True},
+            Datatypes.I32: {"type": ir.IntType(32), "signed": True},
+            Datatypes.I64: {"type": ir.IntType(64), "signed": True},
+            Datatypes.U0: {"type": ir.VoidType(), "signed": False},
+            Datatypes.F32: {"type": ir.FloatType(), "signed": True},
+            Datatypes.F64: {"type": ir.DoubleType(), "signed": True}
+        }
+
+        self.type_map = {k: v["type"] for k, v in self.type_info.items()}
 
     def tokenize(self):
         source_code = self.source_code
