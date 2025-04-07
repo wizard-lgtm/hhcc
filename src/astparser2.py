@@ -523,7 +523,10 @@ class ASTParser:
         return ASTNode.ForLoop(init, condition, update, body)
 
     def comment(self):
-        node = ASTNode.Comment(self.current_token().value)
+        value = self.current_token().value
+        # Determine if it's an inline comment (e.g., starts with //)
+        is_inline = value.strip().startswith("//")
+        node = ASTNode.Comment(text=value, is_inline=is_inline)
         self.next_token()
         return node
 
