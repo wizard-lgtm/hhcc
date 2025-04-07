@@ -246,14 +246,17 @@ class ASTNode:
             return self.print_tree()
         
     class Comment:
-        def __init__(self, text):
+        def __init__(self, text, is_inline=False):
             self.text = text
+            self.is_inline = is_inline
+            self.node_type = "Comment"
 
         def print_tree(self, prefix=""):
-            return f"{prefix}Comment: {self.text}\n"
+            type_info = "Inline" if self.is_inline else "Block"
+            return f"{prefix}{self.node_type} ({type_info}): {self.text}\n"
 
         def __repr__(self):
-            return self.print_tree()    
+            return self.print_tree()
         
     class FunctionCall:
         def __init__(self, name, arguments, has_parentheses=False):
