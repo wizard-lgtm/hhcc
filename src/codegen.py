@@ -136,7 +136,6 @@ class Codegen:
     
     def turn_variable_type_to_llvm_type(self, type: Datatypes):
         llvm_type  = self.type_map[type]
-        print(llvm_type)
         return llvm_type
 
     def handle_function_definition(self, node: ASTNode.FunctionDefinition, **kwargs):
@@ -361,7 +360,6 @@ class Codegen:
     def handle_variable_declaration(self, node: ASTNode.VariableDeclaration, builder: ir.IRBuilder, **kwargs):
         # local variable 
         var_type = Datatypes.to_llvm_type(node.var_type)
-        print(var_type)
         var = builder.alloca(var_type, name=node.name)  
 
         # Store variable in symbol table
@@ -382,7 +380,6 @@ class Codegen:
         # Load the local variable's value
         local_value = builder.load(var, name="loaded_local")
 
-        print("varible declaration llvm")
 
     def handle_variable_assignment(self, node, **kwargs):
         pass
@@ -406,8 +403,17 @@ class Codegen:
     def handle_for_loop(self, node, **kwargs):
         pass
 
-    def handle_comment(self, node, **kwargs):
-        pass
+    def handle_comment(self, node: ASTNode.Comment, **kwargs):
+        if 'builder' in kwargs and kwargs['builder'] is not None:
+            builder = kwargs['builder']
+            comment_text = node.text
+            if node.is_inline:
+                comment_text = "INLINE: " + comment_text
+                
+            # Add a custom metadata node that we can convert to a comment when printing
+            comment_md = builder.module.add_metadata([ir.MetaDataString(builder.module, comment_text)])
+            
+        
 
     def handle_function_call(self, node, **kwargs):
         pass
