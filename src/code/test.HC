@@ -9,12 +9,11 @@ U8 main() {
     U8 e = 10 % 3;         // Modulo: 1
     
     // Bitwise operations
-    // NOT IMPLEMENTED
-    // U8 f = 12 & 5;         // Bitwise AND: 4
-    //U8 g = 12 | 5;         // Bitwise OR: 13
-    //U8 h = 12 ^ 5;         // Bitwise XOR: 9
-    //U8 i = 5 << 2;         // Left shift: 20
-    //U8 j = 20 >> 2;        // Right shift: 5
+    U8 f = 12 & 5;         // Bitwise AND: 4
+    U8 g = 12 | 5;         // Bitwise OR: 13
+    U8 h = 12 ^ 5;         // Bitwise XOR: 9
+    U8 i = 5 << 2;         // Left shift: 20
+    U8 j = 20 >> 2;        // Right shift: 5
     
     // Comparison operations (result should be 1 for true, 0 for false)
     //U8 k = 5 == 5;        // Equal: 1
