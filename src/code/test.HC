@@ -16,24 +16,23 @@ U8 main() {
     U8 j = 20 >> 2;        // Right shift: 5
     
     // Comparison operations (result should be 1 for true, 0 for false)
-    //U8 k = 5 == 5;        // Equal: 1
-    //U8 l = 5 != 3;        // Not equal: 1
-    //U8 m = 5 < 10;        // Less than: 1
-    //U8 n = 5 <= 5;        // Less than or equal: 1
-    //U8 o = 10 > 5;        // Greater than: 1
-    //U8 p = 10 >= 10;      // Greater than or equal: 1
+    Bool k = 5 == 5;        // Equal: 1
+    Bool l = 5 != 3;        // Not equal: 1
+    Bool m = 5 < 10;        // Less than: 1
+    Bool n = 5 <= 5;        // Less than or equal: 1
+    Bool o = 10 > 5;        // Greater than: 1
+    Bool p = 10 >= 10;      // Greater than or equal: 1
     
     // Logical operations
-    //U8 q = (5 > 3) && (10 > 5);  // Logical AND: 1
-    //U8 r = (5 > 10) || (10 > 5); // Logical OR: 1
+    Bool q = (5 > 3) && (10 > 5);  // Logical AND: 1
+    Bool r = (5 > 10) || (10 > 5); // Logical OR: 1
     
     // Testing precedence
-    //U8 s = 5 + 3 * 4;     // Should be 17 (multiplication has higher precedence)
-    //U8 t = (5 + 3) * 4;   // Should be 32 (parentheses override precedence)
+    U8 s = 5 + 3 * 4;     // Should be 17 (multiplication has higher precedence)
+    U8 t = (5 + 3) * 4;   // Should be 32 (parentheses override precedence)
     
     // Complex expression
-    // AMPRESENT NOT IMPLEMENTED (reference)
-    //U8 result = a + b * c / d - e & f;
-    U8 result = a + b * c / d - e ;
+    U8 result = a + b * c / d - e & f;
+    U8 result = a + b * c / d - e;
     return result;
 }
