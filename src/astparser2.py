@@ -181,10 +181,12 @@ class ASTParser:
         precedence_map = {
             '+': 1, '-': 1,  # Addition, subtraction
             '*': 2, '/': 2, '%': 2,  # Multiplication, division, modulo
-            '<': 3, '>': 3, '<=': 3, '>=': 3,  # Comparison
-            '==': 4, '!=': 4,  # Equality
-            '&&': 5,  # Logical AND
-            '||': 6,  # Logical OR
+            '|': 3, '&': 3, '^': 3,  # Bitwise OR, AND, XOR
+            '<<': 3, '>>': 3,        # Bitwise shifts
+            '<': 4, '>': 4, '<=': 4, '>=': 4,  # Comparison
+            '==': 5, '!=': 5,  # Equality
+            '&&': 6,  # Logical AND
+            '||': 7,  # Logical OR
         }
         
         # Start with parsing a primary expression
