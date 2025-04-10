@@ -358,31 +358,77 @@ class Codegen:
         pass
 
     def handle_variable_declaration(self, node: ASTNode.VariableDeclaration, builder: ir.IRBuilder, **kwargs):
-        # local variable 
+        # Allocate space for the variable
         var_type = Datatypes.to_llvm_type(node.var_type)
         var = builder.alloca(var_type, name=node.name)  
 
         # Store variable in symbol table
         self.symbol_table[node.name] = var
+        
         # Handle initial value if present
         if node.value:
-            llvm_type = Datatypes.to_llvm_type(node.var_type)
-            value = self.handle_expression(node.value, builder, llvm_type)
+            value = self.handle_expression(node.value, builder, var_type)
             builder.store(value, var)
-
-        llvm_type = self.turn_variable_type_to_llvm_type(node.var_type)
-
-        # Parse value from expression
-        value = self.handle_expression(node.value, builder, llvm_type)
-
-        builder.store(value, var) 
-
-        # Load the local variable's value
-        local_value = builder.load(var, name="loaded_local")
-
-
-    def handle_variable_assignment(self, node, **kwargs):
-        pass
+        
+        return var # Return the variable pointer
+    
+    def handle_variable_assignment(self, node: ASTNode.VariableAssignment, builder: ir.IRBuilder, **kwargs):
+        # Get the variable name
+        var_name = node.name
+        
+        # Check if the variable exists in the symbol table
+        if var_name not in self.symbol_table:
+            raise ValueError(f"Variable '{var_name}' not found in symbol table. It must be declared before assignment.")
+        
+        # Get the pointer to the variable
+        var_ptr = self.symbol_table[var_name]
+        
+        # Get the variable's LLVM type
+        var_type = var_ptr.type.pointee
+        
+        # Evaluate the right-hand side expression
+        value = self.handle_expression(node.value, builder, var_type)
+        
+        # If types don't match, try to insert a cast
+        if value.type != var_type:
+            if isinstance(var_type, ir.IntType) and isinstance(value.type, ir.IntType):
+                # Integer to integer cast
+                if var_type.width > value.type.width:
+                    # Extending the integer
+                    if Datatypes.is_signed_type(var_type):
+                        value = builder.sext(value, var_type, name="sext")
+                    else:
+                        value = builder.zext(value, var_type, name="zext")
+                else:
+                    # Truncating the integer
+                    value = builder.trunc(value, var_type, name="trunc")
+            elif isinstance(var_type, (ir.FloatType, ir.DoubleType)) and isinstance(value.type, (ir.FloatType, ir.DoubleType)):
+                # Float to float cast
+                if isinstance(var_type, ir.DoubleType) and isinstance(value.type, ir.FloatType):
+                    value = builder.fpext(value, var_type, name="fpext")
+                elif isinstance(var_type, ir.FloatType) and isinstance(value.type, ir.DoubleType):
+                    value = builder.fptrunc(value, var_type, name="fptrunc")
+            elif isinstance(var_type, (ir.FloatType, ir.DoubleType)) and isinstance(value.type, ir.IntType):
+                # Integer to float cast
+                if Datatypes.is_signed_type(value.type):
+                    value = builder.sitofp(value, var_type, name="sitofp")
+                else:
+                    value = builder.uitofp(value, var_type, name="uitofp")
+            elif isinstance(var_type, ir.IntType) and isinstance(value.type, (ir.FloatType, ir.DoubleType)):
+                # Float to integer cast
+                if Datatypes.is_signed_type(var_type):
+                    value = builder.fptosi(value, var_type, name="fptosi")
+                else:
+                    value = builder.fptoui(value, var_type, name="fptoui")
+            else:
+                # Handle pointer types or other more complex cast scenarios
+                if isinstance(var_type, ir.PointerType) and isinstance(value.type, ir.PointerType):
+                    value = builder.bitcast(value, var_type, name="ptr_cast")
+                else:
+                    raise TypeError(f"Incompatible types for assignment: {value.type} cannot be assigned to {var_type}")
+        
+        # Store the value in the variable
+        builder.store(value, var_ptr)
 
     def handle_return(self, node: ASTNode.Return, builder: ir.IRBuilder, **kwargs):
         # If the value is a function
