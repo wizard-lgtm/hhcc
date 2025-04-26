@@ -612,7 +612,7 @@ class Codegen:
         else:
             builder.ret_void()
             
-    def handle_if_statement(self, node: ASTNode.IfStatement, builder: ir.IRBuilder):
+    def handle_if_statement(self, node: ASTNode.IfStatement, builder: ir.IRBuilder, **kwargs):
         # Evaluate the condition
         condition = self.handle_expression(node.condition, builder, self.type_map[Datatypes.BOOL])
 
@@ -639,13 +639,34 @@ class Codegen:
             builder.position_at_end(else_block)
             for stmt in node.else_body.nodes:
                 self.process_node(stmt, builder=builder)
-            builder.branch(merge_block)
+            if not builder.block.is_terminated:
+                builder.branch(merge_block)
 
         # Position the builder at the merge block
         builder.position_at_end(merge_block)
 
-    def handle_while_loop(self, node, **kwargs):
-        pass
+    def handle_while_loop(self, node: ASTNode.WhileLoop, builder: ir.IRBuilder):
+        # Create basic blocks for the loop
+        loop_cond_block = builder.append_basic_block("while.cond")
+        loop_body_block = builder.append_basic_block("while.body")
+        loop_end_block = builder.append_basic_block("while.end")
+
+        # Branch to the condition block
+        builder.branch(loop_cond_block)
+
+        # Generate code for the condition block
+        builder.position_at_end(loop_cond_block)
+        condition = self.handle_expression(node.condition, builder, self.type_map[Datatypes.BOOL])
+        builder.cbranch(condition, loop_body_block, loop_end_block)
+
+        # Generate code for the body block
+        builder.position_at_end(loop_body_block)
+        for stmt in node.body.nodes:
+            self.process_node(stmt, builder=builder)
+        builder.branch(loop_cond_block)
+
+        # Position the builder at the end block
+        builder.position_at_end(loop_end_block)
 
     def handle_for_loop(self, node, **kwargs):
         pass

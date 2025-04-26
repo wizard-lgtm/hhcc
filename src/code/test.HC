@@ -37,5 +37,9 @@ U8 main() {
     if (1==1){
         return 2;
     }
+    U8 interval = 0;
+    while(interval < 10){
+        interval = interval + 1;
+    }
     return result;
 }
