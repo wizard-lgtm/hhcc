@@ -668,8 +668,38 @@ class Codegen:
         # Position the builder at the end block
         builder.position_at_end(loop_end_block)
 
-    def handle_for_loop(self, node, **kwargs):
-        pass
+    def handle_for_loop(self, node: ASTNode.ForLoop, builder: ir.IRBuilder, **kwargs):
+        # Create basic blocks for the loop
+        loop_init_block = builder.append_basic_block("for.init")
+        loop_cond_block = builder.append_basic_block("for.cond")
+        loop_body_block = builder.append_basic_block("for.body")
+        loop_inc_block = builder.append_basic_block("for.inc")
+        loop_end_block = builder.append_basic_block("for.end")
+
+        # Generate code for the initialization block
+        builder.branch(loop_init_block)
+        builder.position_at_end(loop_init_block)
+        self.process_node(node, builder=builder)
+        builder.branch(loop_cond_block)
+
+        # Generate code for the condition block
+        builder.position_at_end(loop_cond_block)
+        condition = self.handle_expression(node.condition, builder, self.type_map[Datatypes.BOOL])
+        builder.cbranch(condition, loop_body_block, loop_end_block)
+
+        # Generate code for the body block
+        builder.position_at_end(loop_body_block)
+        for stmt in node.body.nodes:
+            self.process_node(stmt, builder=builder)
+        builder.branch(loop_inc_block)
+
+        # Generate code for the increment block
+        builder.position_at_end(loop_inc_block)
+        self.process_node(node.increment, builder=builder)
+        builder.branch(loop_cond_block)
+
+        # Position the builder at the end block
+        builder.position_at_end(loop_end_block)
 
     def handle_comment(self, node: ASTNode.Comment, **kwargs):
         if 'builder' in kwargs and kwargs['builder'] is not None:
