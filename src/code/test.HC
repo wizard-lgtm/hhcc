@@ -34,5 +34,8 @@ U8 main() {
     // Complex expression
     U8 result = a + b * c / d - e & f;
     U8 result = a + b * c / d - e;
+    if (1==1){
+        return 2;
+    }
     return result;
 }
