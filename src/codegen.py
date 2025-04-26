@@ -669,33 +669,42 @@ class Codegen:
         builder.position_at_end(loop_end_block)
 
     def handle_for_loop(self, node: ASTNode.ForLoop, builder: ir.IRBuilder, **kwargs):
-        # Create basic blocks for the loop
-        loop_init_block = builder.append_basic_block("for.init")
+        # Create basic blocks for the for loop
         loop_cond_block = builder.append_basic_block("for.cond")
         loop_body_block = builder.append_basic_block("for.body")
-        loop_inc_block = builder.append_basic_block("for.inc")
+        loop_update_block = builder.append_basic_block("for.update")
         loop_end_block = builder.append_basic_block("for.end")
 
-        # Generate code for the initialization block
-        builder.branch(loop_init_block)
-        builder.position_at_end(loop_init_block)
-        self.process_node(node, builder=builder)
+        # Initialize the loop variable(s) (if any)
+        if node.initialization:
+            self.process_node(node.initialization, builder=builder)
+
+        # Branch to the condition block
         builder.branch(loop_cond_block)
 
         # Generate code for the condition block
         builder.position_at_end(loop_cond_block)
-        condition = self.handle_expression(node.condition, builder, self.type_map[Datatypes.BOOL])
-        builder.cbranch(condition, loop_body_block, loop_end_block)
+        if node.condition:
+            condition = self.handle_expression(node.condition, builder, self.type_map[Datatypes.BOOL])
+            builder.cbranch(condition, loop_body_block, loop_end_block)
+        else:
+            # If there's no condition, assume an infinite loop unless we break somewhere
+            builder.branch(loop_body_block)
 
         # Generate code for the body block
         builder.position_at_end(loop_body_block)
         for stmt in node.body.nodes:
             self.process_node(stmt, builder=builder)
-        builder.branch(loop_inc_block)
 
-        # Generate code for the increment block
-        builder.position_at_end(loop_inc_block)
-        self.process_node(node.increment, builder=builder)
+        # After the body, move to the update block
+        builder.branch(loop_update_block)
+
+        # Generate code for the update block (if any)
+        builder.position_at_end(loop_update_block)
+        if node.update:
+            self.process_node(node.update, builder=builder)
+
+        # Return to the condition block for the next iteration
         builder.branch(loop_cond_block)
 
         # Position the builder at the end block
