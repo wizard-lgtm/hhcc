@@ -1,4 +1,3 @@
-
 from llvmlite import ir, binding
 from typing import TYPE_CHECKING, Dict, Callable, Type
 from astnodes import *
@@ -613,8 +612,37 @@ class Codegen:
         else:
             builder.ret_void()
             
-    def handle_if_statement(self, node, **kwargs):
-        pass
+    def handle_if_statement(self, node: ASTNode.IfStatement, builder: ir.IRBuilder):
+        # Evaluate the condition
+        condition = self.handle_expression(node.condition, builder, self.type_map[Datatypes.BOOL])
+
+        # Create basic blocks for the 'then', 'else', and 'merge' sections
+        then_block = builder.append_basic_block("if.then")
+        else_block = builder.append_basic_block("if.else") if node.else_body else None
+        merge_block = builder.append_basic_block("if.end")
+
+        # Branch based on the condition
+        if else_block:
+            builder.cbranch(condition, then_block, else_block)
+        else:
+            builder.cbranch(condition, then_block, merge_block)
+
+        # Generate code for the 'then' block
+        builder.position_at_end(then_block)
+        for stmt in node.if_body.nodes:
+            self.process_node(stmt, builder=builder)
+        if not builder.block.is_terminated:
+            builder.branch(merge_block)
+
+        # Generate code for the 'else' block if it exists
+        if else_block:
+            builder.position_at_end(else_block)
+            for stmt in node.else_body.nodes:
+                self.process_node(stmt, builder=builder)
+            builder.branch(merge_block)
+
+        # Position the builder at the merge block
+        builder.position_at_end(merge_block)
 
     def handle_while_loop(self, node, **kwargs):
         pass
