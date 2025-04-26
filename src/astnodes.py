@@ -1,10 +1,11 @@
-from typing import List, Union
+from typing import List, Union, Optional, Dict, Any, Tuple
 from enum import Enum, auto
 from lexer import *
+
 class Variable:
-    def __init__(self, name, value):
-        self.name = name
-        self.value = value
+    def __init__(self, name: str, value: Any):
+        self.name: str = name
+        self.value: Any = value
 
 class NodeType(Enum):
     LITERAL = auto()
@@ -57,14 +58,17 @@ class ASTNodeType(Enum):
 
 class ASTNode:
     class ExpressionNode:
-        def __init__(self, node_type: NodeType, value=None, left=None, right=None, op=None):
-            self.node_type = node_type
-            self.value = value  # For literals and identifiers
-            self.left = left    # For binary and unary ops
-            self.right = right  # For binary ops
-            self.op = op        # Operator for binary/unary ops
+        def __init__(self, node_type: NodeType, value: Any = None, 
+                    left: Optional['ASTNode.ExpressionNode'] = None, 
+                    right: Optional['ASTNode.ExpressionNode'] = None, 
+                    op: Optional[str] = None):
+            self.node_type: NodeType = node_type
+            self.value: Any = value  # For literals and identifiers
+            self.left: Optional['ASTNode.ExpressionNode'] = left    # For binary and unary ops
+            self.right: Optional['ASTNode.ExpressionNode'] = right  # For binary ops
+            self.op: Optional[str] = op        # Operator for binary/unary ops
 
-        def print_tree(self, prefix=""):
+        def print_tree(self, prefix: str = "") -> str:
             result = f"{prefix}ExpressionNode ({self.node_type}"
             if self.op:
                 result += f": {self.op}"
@@ -79,17 +83,14 @@ class ASTNode:
 
             return result
 
-        def __repr__(self):
+        def __repr__(self) -> str:
             return self.print_tree()
 
-
     class Block:
-        nodes: List
+        def __init__(self, nodes: List[Any]):
+            self.nodes: List[Any] = nodes
 
-        def __init__(self, nodes):
-            self.nodes = nodes
-
-        def print_tree(self, prefix=""):
+        def print_tree(self, prefix: str = "") -> str:
             result = f"{prefix}Block\n"
             for node in self.nodes:
                 # Check if the node has a print_tree method (i.e., it's a valid AST node)
@@ -99,25 +100,25 @@ class ASTNode:
                     result += f"{prefix}    {str(node)}\n"  # For non-structured nodes (simple types)
             return result
 
-        def __repr__(self):
+        def __repr__(self) -> str:
             return self.print_tree()
 
-
     class VariableDeclaration:
-        def __init__(self, var_type, name, value=None, is_user_typed=False, is_pointer=False):
-            self.var_type = var_type
-            self.name = name
-            self.value = value
-            self.is_user_typed = is_user_typed
-            self.is_pointer = is_pointer
+        def __init__(self, var_type: str, name: str, value: Optional[Any] = None, 
+                    is_user_typed: bool = False, is_pointer: bool = False):
+            self.var_type: str = var_type
+            self.name: str = name
+            self.value: Optional[Any] = value
+            self.is_user_typed: bool = is_user_typed
+            self.is_pointer: bool = is_pointer
 
-        def print_tree(self, prefix=""):
+        def print_tree(self, prefix: str = "") -> str:
             result = f"{prefix}VariableDeclaration\n"
             result += f"{prefix}├── var_type: {self.var_type}\n"
             result += f"{prefix}├── name: {self.name}\n"
             if self.value:
                 if isinstance(self.value, str):
-                    result += f"{prefix}└── value: {self.value + "\n"}"
+                    result += f"{prefix}└── value: {self.value + '\n'}"
                 else:
                     result += f"{prefix}└── value: {self.value.print_tree(prefix + '    ')}"
             if self.is_user_typed:
@@ -126,42 +127,43 @@ class ASTNode:
                 result += f"{prefix}└── is_pointer: {self.is_pointer}"
             return result
 
-        def __repr__(self):
+        def __repr__(self) -> str:
             return self.print_tree()
 
     class VariableAssignment:
-        def __init__(self, name, value=None):
-            self.name = name
-            self.value = value
+        def __init__(self, name: str, value: Optional[Any] = None):
+            self.name: str = name
+            self.value: Optional[Any] = value
 
-        def print_tree(self, prefix=""):
+        def print_tree(self, prefix: str = "") -> str:
             result = f"{prefix}VariableAssignment\n"
             result += f"{prefix}├── name: {self.name}\n"
             if self.value:
                 result += f"{prefix}└── value: {self.value.print_tree(prefix + '    ')}"
             return result
 
-        def __repr__(self):
+        def __repr__(self) -> str:
             return self.print_tree()
 
     class Return:
-        def __init__(self, expression):
-            self.expression = expression 
+        def __init__(self, expression: Any):
+            self.expression: Any = expression 
 
-        def print_tree(self, prefix=""):
+        def print_tree(self, prefix: str = "") -> str:
             return f"{prefix}Return\n{prefix}└── expression: {self.expression}\n"
 
-        def __repr__(self):
+        def __repr__(self) -> str:
             return self.print_tree()
 
     class FunctionDefinition:
-        def __init__(self, name, return_type, body, parameters ): 
-            self.name = name
-            self.return_type = return_type
-            self.parameters = parameters or []
-            self.body = body 
+        def __init__(self, name: str, return_type: str, body: 'ASTNode.Block', 
+                    parameters: List['ASTNode.VariableDeclaration']):
+            self.name: str = name
+            self.return_type: str = return_type
+            self.parameters: List['ASTNode.VariableDeclaration'] = parameters or []
+            self.body: 'ASTNode.Block' = body 
 
-        def print_tree(self, prefix=""):
+        def print_tree(self, prefix: str = "") -> str:
             result = f"{prefix}FunctionDefinition\n"
             result += f"{prefix}├── name: {self.name}\n"
             result += f"{prefix}├── return_type: {self.return_type}\n"
@@ -172,23 +174,24 @@ class ASTNode:
                         result += param.print_tree(prefix + "│  ")
             if self.body:
                 result += f"{prefix}└── body: {self.body}\n"
-                
             else:
                 result += "No Function body"
             return result
 
-        def __repr__(self):
+        def __repr__(self) -> str:
             return self.print_tree() 
-    class IfStatement:
-        def __init__(self, condition, if_body, else_body = None):
-            self.condition = condition 
-            self.if_body = if_body      
-            self.else_body = else_body  # A block Optinal Optinal Optinal
 
-        def print_tree(self, prefix=""):
+    class IfStatement:
+        def __init__(self, condition: 'ASTNode.ExpressionNode', 
+                    if_body: 'ASTNode.Block', 
+                    else_body: Optional['ASTNode.Block'] = None):
+            self.condition: 'ASTNode.ExpressionNode' = condition 
+            self.if_body: 'ASTNode.Block' = if_body      
+            self.else_body: Optional['ASTNode.Block'] = else_body  # Optional Block
+
+        def print_tree(self, prefix: str = "") -> str:
             result = f"{prefix}IfStatement\n"
             result += f"{prefix}├── condition: {self.condition.print_tree(prefix + '│   ')}"
-            
             result += f"{prefix}├── if_body: {self.if_body.print_tree(prefix + '│   ')}"
 
             if self.else_body:
@@ -196,31 +199,34 @@ class ASTNode:
 
             return result
 
-        def __repr__(self):
+        def __repr__(self) -> str:
             return self.print_tree()
 
     class WhileLoop:
-        def __init__(self, condition, body):
-            self.condition = condition
-            self.body = body
+        def __init__(self, condition: 'ASTNode.ExpressionNode', body: 'ASTNode.Block'):
+            self.condition: 'ASTNode.ExpressionNode' = condition
+            self.body: 'ASTNode.Block' = body
 
-        def print_tree(self, prefix=""):
+        def print_tree(self, prefix: str = "") -> str:
             result = f"{prefix}WhileLoop\n"
             result += f"{prefix}├── condition: {self.condition.print_tree(prefix + '│   ')}"
             result += f"{prefix}└── body: {self.body.print_tree(prefix + '    ')}"
             return result
 
-        def __repr__(self):
+        def __repr__(self) -> str:
             return self.print_tree()
         
     class ForLoop:
-        def __init__(self, initialization, condition, update, body):
-            self.initialization = initialization 
-            self.condition = condition           
-            self.update = update                 # TODO! didn't implemented ++ or -- feature so it's just variable assigmnet now 
-            self.body = body                     
+        def __init__(self, initialization: Optional['ASTNode.VariableDeclaration'], 
+                    condition: Optional['ASTNode.ExpressionNode'], 
+                    update: Optional['ASTNode.VariableAssignment'], 
+                    body: 'ASTNode.Block'):
+            self.initialization: Optional['ASTNode.VariableDeclaration'] = initialization 
+            self.condition: Optional['ASTNode.ExpressionNode'] = condition           
+            self.update: Optional['ASTNode.VariableAssignment'] = update  # TODO! didn't implemented ++ or -- feature so it's just variable assignment now 
+            self.body: 'ASTNode.Block' = body                     
         
-        def print_tree(self, prefix=""):
+        def print_tree(self, prefix: str = "") -> str:
             result = f"{prefix}ForLoop\n"
             
             if self.initialization:
@@ -242,29 +248,29 @@ class ASTNode:
             
             return result
         
-        def __repr__(self):
+        def __repr__(self) -> str:
             return self.print_tree()
         
     class Comment:
-        def __init__(self, text, is_inline=False):
-            self.text = text
-            self.is_inline = is_inline
-            self.node_type = "Comment"
+        def __init__(self, text: str, is_inline: bool = False):
+            self.text: str = text
+            self.is_inline: bool = is_inline
+            self.node_type: str = "Comment"
 
-        def print_tree(self, prefix=""):
+        def print_tree(self, prefix: str = "") -> str:
             type_info = "Inline" if self.is_inline else "Block"
             return f"{prefix}{self.node_type} ({type_info}): {self.text}\n"
 
-        def __repr__(self):
+        def __repr__(self) -> str:
             return self.print_tree()
         
     class FunctionCall:
-        def __init__(self, name, arguments, has_parentheses=False):
-            self.name = name
-            self.arguments = arguments  # List of expressions
-            self.has_parentheses = has_parentheses  # Flag to indicate if parentheses were used
+        def __init__(self, name: str, arguments: List['ASTNode.ExpressionNode'], has_parentheses: bool = False):
+            self.name: str = name
+            self.arguments: List['ASTNode.ExpressionNode'] = arguments  # List of expressions
+            self.has_parentheses: bool = has_parentheses  # Flag to indicate if parentheses were used
 
-        def print_tree(self, prefix=""):
+        def print_tree(self, prefix: str = "") -> str:
             result = f"{prefix}FunctionCall\n"
             result += f"{prefix}├── name: {self.name}\n"
             result += f"{prefix}├── has_parentheses: {self.has_parentheses}\n"
@@ -281,18 +287,18 @@ class ASTNode:
                 
             return result
 
-        def __repr__(self):
+        def __repr__(self) -> str:
             return self.print_tree()
         
     class Class:
-        def __init__(self, name, fields, parent=None):
-            self.name = name
-            self.fields = fields  # List of variable assignments
-            self.parent = parent  
+        def __init__(self, name: str, fields: List['ASTNode.VariableDeclaration'], parent: Optional[str] = None):
+            self.name: str = name
+            self.fields: List['ASTNode.VariableDeclaration'] = fields  # List of variable assignments
+            self.parent: Optional[str] = parent  
             Datatypes.add_type(name, self)
             keywords[name] = name
 
-        def print_tree(self, prefix=""):
+        def print_tree(self, prefix: str = "") -> str:
             result = f"{prefix}Class\n"
             result += f"{prefix}├── name: {self.name}\n"
 
@@ -311,16 +317,16 @@ class ASTNode:
 
             return result
 
-        def __repr__(self):
+        def __repr__(self) -> str:
             return self.print_tree()
 
     class Union:
-        def __init__(self, name, fields):
-            self.name = name
-            self.fields = fields  # List of variable assignments
+        def __init__(self, name: str, fields: List['ASTNode.VariableDeclaration']):
+            self.name: str = name
+            self.fields: List['ASTNode.VariableDeclaration'] = fields  # List of variable assignments
             Datatypes.add_type(name, self)
 
-        def print_tree(self, prefix=""):
+        def print_tree(self, prefix: str = "") -> str:
             result = f"{prefix}Union\n"
             result += f"{prefix}├── name: {self.name}\n"
 
@@ -336,31 +342,33 @@ class ASTNode:
 
             return result
 
-        def __repr__(self):
+        def __repr__(self) -> str:
             return self.print_tree()
 
     class Break:
-        def print_tree(self, prefix=""):
+        def print_tree(self, prefix: str = "") -> str:
             return f"{prefix}Break\n"
 
-        def __repr__(self):
+        def __repr__(self) -> str:
             return self.print_tree()
 
     class Continue:
-        def print_tree(self, prefix=""):
+        def print_tree(self, prefix: str = "") -> str:
             return f"{prefix}Continue\n"
 
-        def __repr__(self):
+        def __repr__(self) -> str:
             return self.print_tree()
 
     class ArrayDeclaration:
-        def __init__(self, base_type, name, dimensions, initialization=None):
-            self.base_type = base_type  # The base type (U8, U64, etc.)
-            self.name = name            # Array variable name
-            self.dimensions = dimensions  # List of expression nodes representing dimensions
-            self.initialization = initialization  # Optional initialization expression
+        def __init__(self, base_type: str, name: str, 
+                    dimensions: List[Optional['ASTNode.ExpressionNode']], 
+                    initialization: Optional['ASTNode.ArrayInitialization'] = None):
+            self.base_type: str = base_type  # The base type (U8, U64, etc.)
+            self.name: str = name            # Array variable name
+            self.dimensions: List[Optional['ASTNode.ExpressionNode']] = dimensions  # List of expression nodes representing dimensions
+            self.initialization: Optional['ASTNode.ArrayInitialization'] = initialization  # Optional initialization expression
 
-        def print_tree(self, prefix=""):
+        def print_tree(self, prefix: str = "") -> str:
             result = f"{prefix}ArrayDeclaration\n"
             result += f"{prefix}├── base_type: {self.base_type}\n"
             result += f"{prefix}├── name: {self.name}\n"
@@ -380,14 +388,14 @@ class ASTNode:
             
             return result
 
-        def __repr__(self):
+        def __repr__(self) -> str:
             return self.print_tree()
         
     class ArrayInitialization:
-        def __init__(self, elements):
-            self.elements = elements  # List of expressions or nested ArrayInitializations
+        def __init__(self, elements: List[Union['ASTNode.ExpressionNode', 'ASTNode.ArrayInitialization']]):
+            self.elements: List[Union['ASTNode.ExpressionNode', 'ASTNode.ArrayInitialization']] = elements  # List of expressions or nested ArrayInitializations
 
-        def print_tree(self, prefix=""):
+        def print_tree(self, prefix: str = "") -> str:
             result = f"{prefix}ArrayInitialization\n"
             
             if self.elements:
@@ -401,29 +409,29 @@ class ASTNode:
                 
             return result
 
-        def __repr__(self):
+        def __repr__(self) -> str:
             return self.print_tree()
         
     class Pointer:
         def __init__(self, variable_name: str):
-            self.variable_name = variable_name
+            self.variable_name: str = variable_name
 
-        def print_tree(self, prefix=""):
+        def print_tree(self, prefix: str = "") -> str:
             result = f"{prefix}Pointer\n"
             result += f"{prefix}└── variable_name: {self.variable_name}\n"
             return result
 
-        def __repr__(self):
+        def __repr__(self) -> str:
             return self.print_tree()
 
     class Reference:
-        def __init__(self, variable_name):
-            self.variable_name = variable_name
+        def __init__(self, variable_name: str):
+            self.variable_name: str = variable_name
             
-        def print_tree(self, prefix=""):
+        def print_tree(self, prefix: str = "") -> str:
             result = f"{prefix}Reference\n"
             result += f"{prefix}└── variable_name: {self.variable_name}\n"
             return result
             
-        def __repr__(self):
+        def __repr__(self) -> str:
             return self.print_tree()
