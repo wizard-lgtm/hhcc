@@ -174,8 +174,6 @@ class ASTParser:
     def parse_expression(self):
         return self.parse_binary_expression()
 
-
-
     def parse_binary_expression(self, precedence=0):
         # Define operator precedence
         precedence_map = {
@@ -224,7 +222,6 @@ class ASTParser:
         if not current:
             self.syntax_error("Unexpected end of input during expression parsing", self.peek_token(-1))
             
-
         # Handle references (& operator)
         if current._type == TokenType.OPERATOR and current.value == '&':
             self.next_token()  # Consume the '&'
@@ -257,10 +254,45 @@ class ASTParser:
             )
             self.next_token()  # Consume the token
             
-            # Check for array indexing or struct access
+            # Check for function calls, array indexing, or struct access
             while self.current_token():
+                # Handle function calls with parentheses
+                if self.current_token()._type == TokenType.SEPARATOR and self.current_token().value == separators["LPAREN"]:
+                    args = []
+                    self.next_token()  # Consume the '('
+                    
+                    # Parse arguments if there are any
+                    if self.current_token() and self.current_token().value != separators["RPAREN"]:
+                        while True:
+                            args.append(self.parse_expression())
+                            
+                            # Check for comma or closing parenthesis
+                            if not self.current_token():
+                                self.syntax_error("Unexpected end of input during function call", self.peek_token(-1))
+                            
+                            if self.current_token().value == separators["RPAREN"]:
+                                break  # Exit the loop
+                            elif self.current_token().value != separators["COMMA"]:
+                                self.syntax_error("Expected ',' or ')' in function arguments", self.current_token())
+                            
+                            self.next_token()  # Consume the comma
+                    
+                    # Expect closing parenthesis
+                    if not self.current_token() or self.current_token().value != separators["RPAREN"]:
+                        self.syntax_error("Expected closing parenthesis ')'", self.current_token())
+                    
+                    self.next_token()  # Consume the ')'
+                    
+                    # Create a function call expression node
+                    node = ASTNode.ExpressionNode(
+                        NodeType.FUNCTION_CALL,
+                        left=node,  # Function name
+                        right=args,  # Arguments list
+                        op="()"  # Use () to denote function call
+                    )
+                    
                 # Handle array indexing with brackets
-                if self.current_token()._type == TokenType.SEPARATOR and self.current_token().value == separators["LBRACKET"]:
+                elif self.current_token()._type == TokenType.SEPARATOR and self.current_token().value == separators["LBRACKET"]:
                     self.next_token()  # Consume the '['
                     index_expr = self.parse_expression()  # Parse the index expression
                     
@@ -289,7 +321,7 @@ class ASTParser:
                     field_name = self.current_token().value
                     self.next_token()  # Consume the field name
                     
-                    # Create a class access node
+                    # Create a struct access node
                     node = ASTNode.ExpressionNode(
                         NodeType.STRUCT_ACCESS,
                         left=node,  # The struct identifier
@@ -297,7 +329,7 @@ class ASTParser:
                         op="."  # Use dot to denote struct access
                     )
                 else:
-                    break  # Exit loop if no more array indexing or struct access
+                    break  # Exit loop if no more function calls, array indexing, or struct access
             
             return node
             

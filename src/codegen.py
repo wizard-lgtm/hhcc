@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 class Codegen:
     def __init__(self, compiler: "Compiler"):
         self.symbol_table = {} 
+        self.function_table = {} 
         self.compiler = compiler
         self.astnodes = compiler.astnodes
         if self.compiler.triple:
@@ -95,6 +96,50 @@ class Codegen:
         self.unsigned_int_types = {bool_type, u8_type, u16_type, u32_type, u64_type}
         self.float_types = {f32_type, f64_type}
 
+    def generation_error(self, message: str, node: 'ASTNode'):
+        """Report an error with a formatted message, based on the ASTNode (instead of token)."""
+        
+        # Retrieve line and column information from the ASTNode (assuming these attributes exist)
+        if hasattr(node, 'line') and hasattr(node, 'column'):
+            line = node.line
+            column = node.column
+        else:
+            line = column = -1  # If line/column info is missing, set to -1 for safety
+
+        # If source code is available, try to get the line of code where the error occurred
+        try:
+            error_line = self.compiler.code.splitlines()[line - 1]  # Subtract 1 for 0-based index
+        except IndexError:
+            error_line = "[ERROR: Line out of range]"
+
+        # Align the caret with the column position (ensure it's within bounds)
+        caret_position = " " * (min(column, len(error_line))) + "^"
+
+        # Print error message and source line context
+        print(f"Generation Error: {message} at line {line}, column {column}")
+        print(f"{error_line}")
+        print(f"{caret_position}")
+        
+        # Print detailed node information
+        print(f"Caused by ASTNode: {repr(node)}")
+
+        # Raise an exception with the full error message
+        raise Exception(f"{message} at line {line}, column {column}\n"
+                        f"{error_line}\n"
+                        f"{caret_position}\n"
+                        f"Caused by ASTNode: {repr(node)}")
+
+        
+    def add_function(self, function: ASTNode.FunctionCall):
+        self.function_map[function.name] = function
+        
+    def lookup_function(self, name: str) -> Optional[ASTNode.FunctionDefinition]:
+        """
+        Look up a function by name and return the FunctionDefinition.
+        Returns None if the function is not found.
+        """
+        return self.function_map.get(name)
+
     def current_node(self):
         self.current_node = self.astnodes[self.node_index]
         return self.current_node
@@ -172,14 +217,8 @@ class Codegen:
         return llvm_type
 
     def handle_function_definition(self, node: ASTNode.FunctionDefinition, **kwargs):
-        outer_scope = self.symbol_table
-
-        # Create a new symbol table for this function
-        self.symbol_table = {}
-
         name = node.name
         return_type = Datatypes.to_llvm_type(node.return_type)
-        print(f"RETURN TYPE: {node.return_type}")
 
         node_params: List[ASTNode.VariableDeclaration] = node.parameters
 
@@ -203,10 +242,9 @@ class Codegen:
             # Parse block
             for body_node in node.body.nodes:
                 self.process_node(body_node, builder=builder)
+                
+        self.symbol_table[func.name] = func
 
-    
-        # Restore the outer scope when function processing is complete
-        self.symbol_table = outer_scope
 
     def handle_binary_expression(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
         is_debug = self.compiler.debug
@@ -494,6 +532,9 @@ class Codegen:
             return self.handle_binary_expression(node, builder, var_type)
         elif node.node_type == NodeType.REFERENCE and node.value == '&':
             return self.handle_pointer(node, builder)
+        elif node.node_type == NodeType.FUNCTION_CALL:
+            # Handle function calls
+            return self.handle_function_call(node, builder, **kwargs)
         elif node.node_type == NodeType.LITERAL:
             # First check if this is actually a variable reference
             if node.value in self.symbol_table:
@@ -722,8 +763,49 @@ class Codegen:
             
         
 
-    def handle_function_call(self, node, **kwargs):
-        pass
+    def handle_function_call(self, node, builder: ir.IRBuilder, var_type=None, **kwargs):
+        # Handle either dedicated FunctionCall nodes or ExpressionNode with FUNCTION_CALL type
+        if isinstance(node, ASTNode.FunctionCall):
+            func_name = node.name
+            arguments = node.arguments
+        elif node.node_type == NodeType.FUNCTION_CALL:
+            # Extract function name from the left part of the expression
+            if node.left and node.left.node_type == NodeType.LITERAL:
+                func_name = node.left.value
+            else:
+                raise ValueError("Invalid function call format: function name not found")
+            
+            # Get arguments from node.right or node.arguments depending on your AST structure
+            # This might need adjustment based on your specific AST structure
+            arguments = node.arguments if hasattr(node, 'arguments') else []
+        else:
+            raise TypeError("Expected a function call node")
+        
+        # Get the function from symbol table
+        func = self.symbol_table.get(func_name)
+        
+        if not func:
+            # If the function isn't found in the symbol table, raise an error
+            raise ValueError(f"Function {func_name} not defined")
+        
+        # Prepare arguments for the function call
+        llvm_args = []
+        for arg in arguments:
+            # Process each argument as an expression
+            llvm_arg = self.handle_expression(arg, builder, None)
+            
+            # Type checking can be done here if you have type information
+            llvm_args.append(llvm_arg)
+        
+        # Make the function call in LLVM IR
+        if hasattr(func, 'return_value') and func.return_value == str(Datatypes.U0):
+            # For void functions
+            builder.call(func, llvm_args)
+            return None
+        else:
+            # For functions that return a value
+            result = builder.call(func, llvm_args)
+            return result
 
     def handle_class(self, node, **kwargs):
         pass

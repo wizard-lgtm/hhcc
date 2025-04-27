@@ -16,6 +16,7 @@ class NodeType(Enum):
     ARRAY_ACCESS = auto()
     STRUCT_ACCESS = auto()
     REFERENCE = auto()
+    FUNCTION_CALL = auto()
 
 class ASTNodeType(Enum):
     # Expression nodes
