@@ -701,64 +701,65 @@ class Codegen:
         
         return var # Return the variable pointer
     
+
     def handle_variable_assignment(self, node: ASTNode.VariableAssignment, builder: ir.IRBuilder, **kwargs):
-        # Get the variable name
+        # 1. Get variable name and ensure it's declared
         var_name = node.name
-        
-        # Check if the variable exists in the symbol table
+        print(node)
         print(self.symbol_table)
+
         if var_name not in self.symbol_table:
             raise ValueError(f"Variable '{var_name}' not found in symbol table. It must be declared before assignment.")
-        
-        # Get the pointer to the variable
-        var_ptr = self.symbol_table[var_name].get("var")
-        
-        # Get the variable's LLVM type
+
+        # 2. Retrieve variable pointer and type
+        var_ptr = self.symbol_table[var_name]["var"]
         var_type = var_ptr.type.pointee
-        
-        # Evaluate the right-hand side expression
+
+        # 3. Evaluate right-hand side expression
         value = self.handle_expression(node.value, builder, var_type)
-        
-        # If types don't match, try to insert a cast
+
+        # 4. Handle type casting if types don't match
         if value.type != var_type:
-            if isinstance(var_type, ir.IntType) and isinstance(value.type, ir.IntType):
-                # Integer to integer cast
-                if var_type.width > value.type.width:
-                    # Extending the integer
-                    if Datatypes.is_signed_type(var_type):
-                        value = builder.sext(value, var_type, name="sext")
-                    else:
-                        value = builder.zext(value, var_type, name="zext")
-                else:
-                    # Truncating the integer
-                    value = builder.trunc(value, var_type, name="trunc")
-            elif isinstance(var_type, (ir.FloatType, ir.DoubleType)) and isinstance(value.type, (ir.FloatType, ir.DoubleType)):
-                # Float to float cast
-                if isinstance(var_type, ir.DoubleType) and isinstance(value.type, ir.FloatType):
-                    value = builder.fpext(value, var_type, name="fpext")
-                elif isinstance(var_type, ir.FloatType) and isinstance(value.type, ir.DoubleType):
-                    value = builder.fptrunc(value, var_type, name="fptrunc")
-            elif isinstance(var_type, (ir.FloatType, ir.DoubleType)) and isinstance(value.type, ir.IntType):
-                # Integer to float cast
-                if Datatypes.is_signed_type(value.type):
-                    value = builder.sitofp(value, var_type, name="sitofp")
-                else:
-                    value = builder.uitofp(value, var_type, name="uitofp")
-            elif isinstance(var_type, ir.IntType) and isinstance(value.type, (ir.FloatType, ir.DoubleType)):
-                # Float to integer cast
-                if Datatypes.is_signed_type(var_type):
-                    value = builder.fptosi(value, var_type, name="fptosi")
-                else:
-                    value = builder.fptoui(value, var_type, name="fptoui")
-            else:
-                # Handle pointer types or other more complex cast scenarios
-                if isinstance(var_type, ir.PointerType) and isinstance(value.type, ir.PointerType):
-                    value = builder.bitcast(value, var_type, name="ptr_cast")
-                else:
-                    raise TypeError(f"Incompatible types for assignment: {value.type} cannot be assigned to {var_type}")
-        
-        # Store the value in the variable
+            value = self._cast_value(value, var_type, builder)
+
+        # 5. Store the evaluated value into the variable
         builder.store(value, var_ptr)
+
+    def _cast_value(self, value, target_type, builder):
+        """Casts a value to the target LLVM type, inserting necessary instructions."""
+        from llvmlite import ir
+
+        src_type = value.type
+
+        # Integer to Integer
+        if isinstance(target_type, ir.IntType) and isinstance(src_type, ir.IntType):
+            if target_type.width > src_type.width:
+                return builder.sext(value, target_type, name="sext") if Datatypes.is_signed_type(target_type) else builder.zext(value, target_type, name="zext")
+            else:
+                return builder.trunc(value, target_type, name="trunc")
+
+        # Float to Float
+        if isinstance(target_type, (ir.FloatType, ir.DoubleType)) and isinstance(src_type, (ir.FloatType, ir.DoubleType)):
+            if isinstance(target_type, ir.DoubleType) and isinstance(src_type, ir.FloatType):
+                return builder.fpext(value, target_type, name="fpext")
+            elif isinstance(target_type, ir.FloatType) and isinstance(src_type, ir.DoubleType):
+                return builder.fptrunc(value, target_type, name="fptrunc")
+
+        # Int to Float
+        if isinstance(target_type, (ir.FloatType, ir.DoubleType)) and isinstance(src_type, ir.IntType):
+            return builder.sitofp(value, target_type, name="sitofp") if Datatypes.is_signed_type(src_type) else builder.uitofp(value, target_type, name="uitofp")
+
+        # Float to Int
+        if isinstance(target_type, ir.IntType) and isinstance(src_type, (ir.FloatType, ir.DoubleType)):
+            return builder.fptosi(value, target_type, name="fptosi") if Datatypes.is_signed_type(target_type) else builder.fptoui(value, target_type, name="fptoui")
+
+        # Pointer to Pointer
+        if isinstance(target_type, ir.PointerType) and isinstance(src_type, ir.PointerType):
+            return builder.bitcast(value, target_type, name="ptr_cast")
+
+        raise TypeError(f"Incompatible types for assignment: {src_type} cannot be assigned to {target_type}")
+
+        
 
     def handle_return(self, node: ASTNode.Return, builder: ir.IRBuilder, **kwargs):
         # If the value is a function
