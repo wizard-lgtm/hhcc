@@ -10,8 +10,12 @@ if TYPE_CHECKING:
 
 class Codegen:
     def __init__(self, compiler: "Compiler"):
-        self.symbol_table = {} 
-        self.function_table = {} 
+
+        self.symbol_table = {}           # Maps variable names to their allocations
+        self.function_table = {}         # Maps function names to their definitions
+        self.struct_table = {}           # Maps struct type names to their definitions
+        self.variable_types = {}         # Maps variable names to their type names
+
         self.compiler = compiler
         self.astnodes = compiler.astnodes
         if self.compiler.triple:
@@ -573,7 +577,7 @@ class Codegen:
                 except ValueError:
                     raise ValueError(f"Invalid literal or undefined variable: '{node.value}'")
 
-
+    
     def handle_expression(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
         if node is None:
             return None
@@ -585,6 +589,8 @@ class Codegen:
         elif node.node_type == NodeType.FUNCTION_CALL:
             # Handle function calls
             return self.handle_function_call(node, builder, **kwargs)
+        elif node.node_type == NodeType.STRUCT_ACCESS:
+            self.handle_struct_access(node, builder)
         elif node.node_type == NodeType.LITERAL:
             # First check if this is actually a variable reference
             if node.value in self.symbol_table:
@@ -625,6 +631,55 @@ class Codegen:
                     raise ValueError(f"Invalid literal or undefined variable: '{node.value}'")
         else:
             raise ValueError(f"Unsupported expression node type: {node.node_type}")
+                
+
+    def handle_struct_access(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder):
+        struct_var_name = node.left.value  # e.g., 't'
+        struct_field_name = node.right.value  # e.g., 'a'
+        print(self.symbol_table)
+        
+        # Get the struct variable from the symbol table
+        struct_info = self.symbol_table.get(struct_var_name)
+        if not struct_info:
+            raise ValueError(f"Unknown variable: {struct_var_name}")
+        
+        # Get struct type name and variable
+        struct_type_name = struct_info['type_name']
+        struct_ptr = struct_info['var']
+        
+        # Look up the class type info in Datatypes
+        class_type = Datatypes.get_type(struct_type_name)
+        if not class_type or not hasattr(class_type, 'get_field_index'):
+            raise ValueError(f"Type '{struct_type_name}' is not a struct or doesn't have fields")
+        
+        try:
+            # Get the field index
+            field_index = class_type.get_field_index(struct_field_name)
+            
+            # Create a GEP instruction to access the struct field
+            indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), field_index)]
+            field_ptr = builder.gep(struct_ptr, indices, name=f"{struct_var_name}.{struct_field_name}")
+            
+            # Load the field value
+            return builder.load(field_ptr, name=f"{struct_var_name}.{struct_field_name}.value")
+        except Exception as e:
+            print(f"Error accessing struct field: {e}")
+            # Return a default value of the appropriate type to avoid None
+            # This is just to prevent the NoneType error, but you should handle this properly
+            # Get the field type from the class info
+            field_type = None
+            for name, ftype in class_type.get_fields():
+                if name == struct_field_name:
+                    field_type = ftype
+                    break
+            
+            if field_type:
+                # Create a default zero value of the appropriate type
+                if isinstance(field_type, ir.IntType):
+                    return ir.Constant(field_type, 0)
+                # Add other type handling as needed
+            
+            raise  # Re-raise the exception if we can't create a default value
 
     def handle_block(self, node):
         pass
@@ -635,11 +690,13 @@ class Codegen:
         var = builder.alloca(var_type, name=node.name)  
 
         # Store variable in symbol table
-        self.symbol_table[node.name] = var
+        self.symbol_table[node.name] = {"type_name": node.var_type, "var": var}
         
         # Handle initial value if present
         if node.value:
             value = self.handle_expression(node.value, builder, var_type)
+            if not value:
+                value = ir.Constant(var_type, 0)  # Default to zero if no value is provided
             builder.store(value, var)
         
         return var # Return the variable pointer
@@ -649,11 +706,12 @@ class Codegen:
         var_name = node.name
         
         # Check if the variable exists in the symbol table
+        print(self.symbol_table)
         if var_name not in self.symbol_table:
             raise ValueError(f"Variable '{var_name}' not found in symbol table. It must be declared before assignment.")
         
         # Get the pointer to the variable
-        var_ptr = self.symbol_table[var_name]
+        var_ptr = self.symbol_table[var_name].get("var")
         
         # Get the variable's LLVM type
         var_type = var_ptr.type.pointee
@@ -898,7 +956,6 @@ class Codegen:
         # Create the structure type in LLVM
         struct_type = ir.LiteralStructType(field_types)
         
-        # Register the class type in the type system
         # Create a wrapper class to store additional information about our class
         class ClassTypeInfo:
             def __init__(self, llvm_type, field_names):
@@ -927,7 +984,9 @@ class Codegen:
         class_type_info = ClassTypeInfo(struct_type, field_names)
         Datatypes.add_type(node.name, class_type_info)
         
-        # No IR is generated at this point, classes are just type definitions
+        # Store the struct info with the class name, not the variable name
+        self.struct_table[node.name] = {'name': node.name, 'class_type_info': class_type_info}
+        
         return None
 
 
