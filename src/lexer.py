@@ -190,9 +190,16 @@ class Datatypes:
         """Convert the type name to the corresponding llvmlite type."""
         # First check if the type is a user-defined type
         if type_name in cls.user_defined_types:
-            return cls.user_defined_types[type_name]
-        
-        # Otherwise, match the type name to the corresponding llvmlite type
+            user_type = cls.user_defined_types[type_name]
+            
+            # If it's a wrapper like ClassTypeInfo, extract the LLVM type
+            if hasattr(user_type, 'get_llvm_type'):
+                return user_type.get_llvm_type()
+            
+            # Otherwise, assume it's already an LLVM type
+            return user_type
+
+        # Primitive and built-in types
         if type_name == cls.U8:
             return ir.IntType(8)
         elif type_name == cls.U16:
@@ -219,6 +226,8 @@ class Datatypes:
             return ir.FloatType()  # Single precision float
         else:
             raise ValueError(f"Unknown type: {type_name}")
+
+
 
 keywords = {
     "F64": "F64",        # 64bit floating point type. 8bytes wide.
