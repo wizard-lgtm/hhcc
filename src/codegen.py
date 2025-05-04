@@ -595,7 +595,7 @@ class Codegen:
             # First check if this is actually a variable reference
             if node.value in self.symbol_table:
                 # It's a variable name, load its value
-                var_ptr = self.symbol_table[node.value]
+                var_ptr = self.symbol_table[node.value].get("var")
                 # Get the actual variable type to pass to any further expressions
                 return builder.load(var_ptr, name=f"load_{node.value}")
             else:
@@ -703,27 +703,71 @@ class Codegen:
     
 
     def handle_variable_assignment(self, node: ASTNode.VariableAssignment, builder: ir.IRBuilder, **kwargs):
-        # 1. Get variable name and ensure it's declared
+        # 1. Get variable name and check if it's a struct field access
         var_name = node.name
-        print(node)
-        print(self.symbol_table)
-
-        if var_name not in self.symbol_table:
-            raise ValueError(f"Variable '{var_name}' not found in symbol table. It must be declared before assignment.")
-
-        # 2. Retrieve variable pointer and type
-        var_ptr = self.symbol_table[var_name]["var"]
-        var_type = var_ptr.type.pointee
-
-        # 3. Evaluate right-hand side expression
-        value = self.handle_expression(node.value, builder, var_type)
-
-        # 4. Handle type casting if types don't match
-        if value.type != var_type:
-            value = self._cast_value(value, var_type, builder)
-
-        # 5. Store the evaluated value into the variable
-        builder.store(value, var_ptr)
+        
+        # Check if this is a struct field assignment (contains a dot)
+        if '.' in var_name:
+            struct_name, field_name = var_name.split('.')
+            
+            # Ensure the struct variable exists
+            if struct_name not in self.symbol_table:
+                raise ValueError(f"Struct variable '{struct_name}' not found in symbol table.")
+            
+            # Get the struct type information
+            struct_info = self.symbol_table[struct_name]
+            struct_ptr = struct_info["var"]
+            struct_type_name = struct_info["type_name"]
+            
+            # Ensure the struct type exists in the struct table
+            if struct_type_name not in self.struct_table:
+                raise ValueError(f"Struct type '{struct_type_name}' not found in struct table.")
+            
+            # Get the struct type definition
+            struct_type_info = self.struct_table[struct_type_name]["class_type_info"]
+            
+            # Find the field index in the struct
+            if field_name not in struct_type_info.field_names:
+                raise ValueError(f"Field '{field_name}' not found in struct '{struct_type_name}'.")
+            
+            field_index = struct_type_info.field_names.index(field_name)
+            
+            # Create a GEP instruction to get the field pointer
+            # First, get the struct pointer
+            zero = ir.Constant(ir.IntType(32), 0)
+            field_idx = ir.Constant(ir.IntType(32), field_index)
+            field_ptr = builder.gep(struct_ptr, [zero, field_idx], name=f"{struct_name}_{field_name}_ptr")
+            
+            # Get the field type from the struct type
+            field_type = struct_type_info.llvm_type.elements[field_index]
+            
+            # Evaluate right-hand side expression
+            value = self.handle_expression(node.value, builder, field_type)
+            
+            # Handle type casting if needed
+            if value.type != field_type:
+                value = self._cast_value(value, field_type, builder)
+            
+            # Store the value in the field
+            builder.store(value, field_ptr)
+        else:
+            # Regular variable assignment (existing code)
+            if var_name not in self.symbol_table:
+                raise ValueError(f"Variable '{var_name}' not found in symbol table. It must be declared before assignment.")
+            
+            # Retrieve variable pointer and type
+            var_ptr = self.symbol_table[var_name]["var"]
+            var_type = var_ptr.type.pointee
+            
+            # Evaluate right-hand side expression
+            value = self.handle_expression(node.value, builder, var_type)
+            
+            # Handle type casting if types don't match
+            if value.type != var_type:
+                value = self._cast_value(value, var_type, builder)
+            
+            # Store the evaluated value into the variable
+            builder.store(value, var_ptr)
 
     def _cast_value(self, value, target_type, builder):
         """Casts a value to the target LLVM type, inserting necessary instructions."""
@@ -928,6 +972,32 @@ class Codegen:
             result = builder.call(func, llvm_args)
             return result
 
+    class ClassTypeInfo:
+                def __init__(self, llvm_type, field_names, parent_type=None, node: ASTNode.Class = None):
+                    self.llvm_type = llvm_type
+                    self.field_names = field_names
+                    self.parent = parent_type
+                    self.node = node
+                
+                def get_llvm_type(self):
+                    return self.llvm_type
+                
+                def get_fields(self):
+                    return [(name, self.llvm_type.elements[i]) for i, name in enumerate(self.field_names)]
+                
+                def get_field_index(self, field_name):
+                    try:
+                        return self.field_names.index(field_name)
+                    except ValueError:
+                        if self.parent:
+                            # Check if the field exists in the parent class
+                            for i, (name, _) in enumerate(self.parent.get_fields()):
+                                if name == field_name:
+                                    return i
+                        raise Exception(f"Unknown field '{field_name}' in class '{self.node}'")
+                def __repr__(self):
+                    return f"<ClassTypeInfo: fields={self.field_names}, parent={self.parent}, llvm_type={self.llvm_type}>"
+
     def handle_class(self, node: ASTNode.Class, **kwargs):
         # Get the parent class if any
         parent_type = None
@@ -958,31 +1028,10 @@ class Codegen:
         struct_type = ir.LiteralStructType(field_types)
         
         # Create a wrapper class to store additional information about our class
-        class ClassTypeInfo:
-            def __init__(self, llvm_type, field_names):
-                self.llvm_type = llvm_type
-                self.field_names = field_names
-                self.parent = parent_type
-            
-            def get_llvm_type(self):
-                return self.llvm_type
-            
-            def get_fields(self):
-                return [(name, self.llvm_type.elements[i]) for i, name in enumerate(self.field_names)]
-            
-            def get_field_index(self, field_name):
-                try:
-                    return self.field_names.index(field_name)
-                except ValueError:
-                    if self.parent:
-                        # Check if the field exists in the parent class
-                        for i, (name, _) in enumerate(self.parent.get_fields()):
-                            if name == field_name:
-                                return i
-                    raise Exception(f"Unknown field '{field_name}' in class '{node.name}'")
+      
         
         # Register the class type
-        class_type_info = ClassTypeInfo(struct_type, field_names)
+        class_type_info = self.ClassTypeInfo(struct_type, field_names, parent_type, node)
         Datatypes.add_type(node.name, class_type_info)
         
         # Store the struct info with the class name, not the variable name
