@@ -844,10 +844,9 @@ class ASTParser:
         if not current_token:
             return None
 
-       
         if current_token._type == TokenType.KEYWORD:
             next_token = self.peek_token()
-          
+        
             if current_token.value in Datatypes.all_types():
                 if next_token._type == TokenType.LITERAL and self.peek_token(2).value == separators["LPAREN"]:
                     return self.function_declaration()
@@ -874,7 +873,6 @@ class ASTParser:
             if current_token.value == separators["LBRACE"]:
                 return self.block()
 
-
         elif current_token._type == TokenType.LITERAL:
             next_token = self.peek_token()
             if current_token.value in Datatypes.user_defined_types:
@@ -885,15 +883,53 @@ class ASTParser:
                 (next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["SEMICOLON"]):
                 # Function call with parentheses or without parentheses
                 return self.function_call()
+            elif next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["DOT"]:
+                # Struct field assignment: t.a = 1;
+                return self.struct_field_assignment()
 
-        
         if current_token._type == TokenType.COMMENT:
             return self.comment()
 
         self.syntax_error("Unexpected statement", current_token)
-
-
     
+    def struct_field_assignment(self):
+        # Start with the struct name (already consumed in parse_statement)
+        struct_name = self.current_token().value
+        
+        # Consume the struct name and move to the dot
+        next_token = self.next_token()
+        if not next_token or next_token.value != separators["DOT"]:
+            self.syntax_error("Expected '.' for struct field access", next_token)
+        
+        # Get the field name
+        field_name = self.next_token()
+        if not field_name or field_name._type != TokenType.LITERAL:
+            self.syntax_error("Expected field name after '.'", field_name)
+        
+        # Move to assignment operator
+        next_token = self.next_token()
+        if not next_token or next_token._type != TokenType.OPERATOR or next_token.value not in assignment_operators.values():
+            self.syntax_error("Expected assignment operator", next_token)
+        
+        # Parse the value expression
+        self.next_token()  # Move past assignment operator
+        value = self.parse_expression()
+        
+        # Check semicolon
+        self.check_semicolon()
+        
+        # Since we might not have NodeType.STRUCT_FIELD_ASSIGNMENT defined yet,
+        # we can use the existing VariableAssignment with a composite name
+        # or handle it specially in the code generator later
+        access_expr = ASTNode.ExpressionNode(
+            NodeType.STRUCT_ACCESS,
+            left=ASTNode.ExpressionNode(NodeType.LITERAL, value=struct_name),
+            right=ASTNode.ExpressionNode(NodeType.LITERAL, value=field_name.value),
+            op="."
+        )
+        
+        return ASTNode.VariableAssignment(f"{struct_name}.{field_name.value}", value)
+        
 
     def parse(self):
         
