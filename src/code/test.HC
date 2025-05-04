@@ -41,6 +41,12 @@ U8 main() {
 
     U8 interval = 0;
 
+    Bool k = false;
+    if(k){
+        return 3;
+    }
+
     U8 a = test();
+
     return a;
 }
