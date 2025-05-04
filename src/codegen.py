@@ -580,106 +580,100 @@ class Codegen:
     
     def handle_expression(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
         if node is None:
-            return None
-            
-        if node.node_type == NodeType.BINARY_OP:
-            return self.handle_binary_expression(node, builder, var_type)
-        elif node.node_type == NodeType.REFERENCE and node.value == '&':
-            return self.handle_pointer(node, builder)
-        elif node.node_type == NodeType.FUNCTION_CALL:
-            # Handle function calls
-            return self.handle_function_call(node, builder, **kwargs)
-        elif node.node_type == NodeType.STRUCT_ACCESS:
-            self.handle_struct_access(node, builder)
-        elif node.node_type == NodeType.LITERAL:
-            # First check if this is actually a variable reference
-            if node.value in self.symbol_table:
-                # It's a variable name, load its value
-                var_ptr = self.symbol_table[node.value].get("var")
-                # Get the actual variable type to pass to any further expressions
-                return builder.load(var_ptr, name=f"load_{node.value}")
-            else:
-                # It's an actual literal value, create a constant
-                try:
-                    # Handle boolean literals first - check for 'true' and 'false'
-                    if isinstance(var_type, ir.IntType) and var_type.width == 1:
-                        # This is a Bool type (i1 in LLVM)
-                        if node.value.lower() == 'true':
-                            return ir.Constant(var_type, 1)
-                        elif node.value.lower() == 'false':
-                            return ir.Constant(var_type, 0)
-                        # If it's not 'true' or 'false', fall through to the numeric parsing
-                    
-                    # Handle different literal types based on var_type
-                    if isinstance(var_type, ir.IntType):
-                        # Check if the type should be signed or unsigned for proper parsing
-                        if var_type in self.signed_int_types:
-                            # Parse as signed integer
-                            return ir.Constant(var_type, int(node.value))
-                        else:
-                            # Parse as unsigned integer, ensure no negative values
-                            val = int(node.value)
-                            if val < 0:
-                                # Convert negative values to their 2's complement representation
-                                val = (1 << var_type.width) + val
-                            return ir.Constant(var_type, val)
-                    elif isinstance(var_type, (ir.FloatType, ir.DoubleType)):
-                        return ir.Constant(var_type, float(node.value))
-                    else:
-                        raise ValueError(f"Unsupported literal type for value: '{node.value}'")
-                except ValueError:
-                    raise ValueError(f"Invalid literal or undefined variable: '{node.value}'")
-        else:
-            raise ValueError(f"Unsupported expression node type: {node.node_type}")
-                
+            raise ValueError("Node is None, cannot handle expression.")
+
+        match node.node_type:
+            case NodeType.BINARY_OP:
+                return self.handle_binary_expression(node, builder, var_type)
+
+            case NodeType.REFERENCE if node.value == '&':
+                return self.handle_pointer(node, builder)
+
+            case NodeType.FUNCTION_CALL:
+                return self.handle_function_call(node, builder, **kwargs)
+
+            case NodeType.STRUCT_ACCESS:
+                return self.handle_struct_access(node, builder)
+
+            case NodeType.LITERAL:
+                return self._expression_handle_literal(node, builder, var_type)
+
+            case _:
+                raise ValueError(f"Unsupported expression node type: {node.node_type}")
+
+
+    def _expression_handle_literal(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type):
+        # Handle variable reference if it's in the symbol table
+        if node.value in self.symbol_table:
+            var_ptr = self.symbol_table[node.value].get("var")
+            return builder.load(var_ptr, name=f"load_{node.value}")
+
+        try:
+            # Boolean literals (true/false)
+            if isinstance(var_type, ir.IntType) and var_type.width == 1:
+                if node.value.lower() == 'true':
+                    return ir.Constant(var_type, 1)
+                elif node.value.lower() == 'false':
+                    return ir.Constant(var_type, 0)
+
+            # Integer literals
+            if isinstance(var_type, ir.IntType):
+                return self._expression_parse_integer_literal(node.value, var_type)
+
+            # Floating point literals
+            if isinstance(var_type, (ir.FloatType, ir.DoubleType)):
+                return ir.Constant(var_type, float(node.value))
+
+            raise ValueError(f"Unsupported literal type for value: '{node.value}'")
+        except ValueError:
+            raise ValueError(f"Invalid literal or undefined variable: '{node.value}'")
+
+
+    def _expression_parse_integer_literal(self, value: str, var_type: ir.IntType):
+        val = int(value)
+
+        if var_type in self.signed_int_types:
+            return ir.Constant(var_type, val)
+
+        # For unsigned integers, convert negatives to 2's complement
+        if val < 0:
+            val = (1 << var_type.width) + val
+
+        return ir.Constant(var_type, val)
 
     def handle_struct_access(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder):
-        struct_var_name = node.left.value  # e.g., 't'
-        struct_field_name = node.right.value  # e.g., 'a'
-        print(self.symbol_table)
-        
-        # Get the struct variable from the symbol table
-        struct_info = self.symbol_table.get(struct_var_name)
+        # For example 't.a' where 't' is the struct variable and 'a' is the field
+        struct_name = node.left.value       # 't'
+        field_name = node.right.value       # 'a'
+
+        # Lookup struct variable
+        struct_info = self.symbol_table.get(struct_name)
         if not struct_info:
-            raise ValueError(f"Unknown variable: {struct_var_name}")
-        
-        # Get struct type name and variable
-        struct_type_name = struct_info['type_name']
-        struct_ptr = struct_info['var']
-        
-        # Look up the class type info in Datatypes
-        class_type = Datatypes.get_type(struct_type_name)
-        if not class_type or not hasattr(class_type, 'get_field_index'):
-            raise ValueError(f"Type '{struct_type_name}' is not a struct or doesn't have fields")
-        
-        try:
-            # Get the field index
-            field_index = class_type.get_field_index(struct_field_name)
-            
-            # Create a GEP instruction to access the struct field
-            indices = [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), field_index)]
-            field_ptr = builder.gep(struct_ptr, indices, name=f"{struct_var_name}.{struct_field_name}")
-            
-            # Load the field value
-            return builder.load(field_ptr, name=f"{struct_var_name}.{struct_field_name}.value")
-        except Exception as e:
-            print(f"Error accessing struct field: {e}")
-            # Return a default value of the appropriate type to avoid None
-            # This is just to prevent the NoneType error, but you should handle this properly
-            # Get the field type from the class info
-            field_type = None
-            for name, ftype in class_type.get_fields():
-                if name == struct_field_name:
-                    field_type = ftype
-                    break
-            
-            if field_type:
-                # Create a default zero value of the appropriate type
-                if isinstance(field_type, ir.IntType):
-                    return ir.Constant(field_type, 0)
-                # Add other type handling as needed
-            
-            raise  # Re-raise the exception if we can't create a default value
+            raise ValueError(f"Unknown struct variable: {struct_name}")
+
+        struct_ptr = struct_info.get("var")
+        struct_type_name = struct_info.get("type_name")
+
+        if struct_ptr is None or struct_type_name is None:
+            raise ValueError(f"Invalid struct entry for '{struct_name}'.")
+
+        # Get field index and type info
+        class_info = self.struct_table.get(struct_type_name)
+        if not class_info:
+            raise ValueError(f"Unknown struct type: {struct_type_name}")
+
+        class_type = class_info.get("class_type_info")
+        if not class_type or field_name not in class_type.field_names:
+            raise ValueError(f"Field '{field_name}' not found in struct '{struct_type_name}'.")
+
+        field_index = class_type.field_names.index(field_name)
+
+        field_ptr = self.get_struct_field_ptr(struct_name, field_name, builder)
+
+        # Load field value
+        dxx = builder.load(field_ptr, name=f"{struct_name}_{field_name}")
+        print(dxx)
+        return dxx
 
     def handle_block(self, node):
         pass
@@ -695,12 +689,40 @@ class Codegen:
         # Handle initial value if present
         if node.value:
             value = self.handle_expression(node.value, builder, var_type)
+            print("value from expression", value)
             if not value:
                 value = ir.Constant(var_type, 0)  # Default to zero if no value is provided
             builder.store(value, var)
         
         return var # Return the variable pointer
     
+
+    def get_struct_field_ptr(self, struct_name: str, field_name: str, builder: ir.IRBuilder):
+        """
+        Returns the pointer to a struct field using GEP.
+        """
+        # Ensure the struct variable exists
+        if struct_name not in self.symbol_table:
+            raise ValueError(f"Struct variable '{struct_name}' not found.")
+
+        struct_info = self.symbol_table[struct_name]
+        struct_ptr = struct_info["var"]
+        struct_type_name = struct_info["type_name"]
+
+        if struct_type_name not in self.struct_table:
+            raise ValueError(f"Struct type '{struct_type_name}' not found.")
+
+        struct_type_info = self.struct_table[struct_type_name]["class_type_info"]
+
+        if field_name not in struct_type_info.field_names:
+            raise ValueError(f"Field '{field_name}' not found in struct '{struct_type_name}'.")
+
+        field_index = struct_type_info.field_names.index(field_name)
+        zero = ir.Constant(ir.IntType(32), 0)
+        field_idx = ir.Constant(ir.IntType(32), field_index)
+
+        return builder.gep(struct_ptr, [zero, field_idx], name=f"{struct_name}_{field_name}_ptr")
+
 
     def handle_variable_assignment(self, node: ASTNode.VariableAssignment, builder: ir.IRBuilder, **kwargs):
         # 1. Get variable name and check if it's a struct field access
@@ -738,6 +760,9 @@ class Codegen:
             field_idx = ir.Constant(ir.IntType(32), field_index)
             field_ptr = builder.gep(struct_ptr, [zero, field_idx], name=f"{struct_name}_{field_name}_ptr")
             
+            field_ptr = self.get_struct_field_ptr(struct_name, field_name, builder)
+
+            
             # Get the field type from the struct type
             field_type = struct_type_info.llvm_type.elements[field_index]
             
@@ -761,6 +786,8 @@ class Codegen:
             
             # Evaluate right-hand side expression
             value = self.handle_expression(node.value, builder, var_type)
+            
+            print("value from expression", value)
             
             # Handle type casting if types don't match
             if value.type != var_type:
