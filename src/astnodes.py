@@ -8,15 +8,29 @@ class Variable:
         self.value: Any = value
 
 class NodeType(Enum):
+    FUNCTION_DEFINITION = auto()
+    VARIABLE_DECLARATION = auto()
+    VARIABLE_ASSIGNMENT = auto()
+    STRUCT_FIELD_ASSIGNMENT = auto()  # Add this for struct field assignments
+    RETURN = auto()
     LITERAL = auto()
-    BINARY_OP = auto()
     UNARY_OP = auto()
-    ASSIGNMENT = auto()
-    CALL = auto()
+    BINARY_OP = auto()
+    FUNCTION_CALL = auto()
+    BLOCK = auto()
+    IF_STATEMENT = auto()
+    WHILE_LOOP = auto()
+    FOR_LOOP = auto()
     ARRAY_ACCESS = auto()
     STRUCT_ACCESS = auto()
     REFERENCE = auto()
-    FUNCTION_CALL = auto()
+    COMMENT = auto()
+    BREAK = auto()
+    CONTINUE = auto()
+    CLASS = auto()
+    UNION = auto()
+    ARRAY_DECLARATION = auto()
+    ARRAY_INITIALIZATION = auto()
 
 class ASTNodeType(Enum):
     # Expression nodes
@@ -436,3 +450,13 @@ class ASTNode:
             
         def __repr__(self) -> str:
             return self.print_tree()
+        
+    class StructFieldAssignment():
+        def __init__(self, struct_name, field_name, value):
+            super().__init__(NodeType.STRUCT_FIELD_ASSIGNMENT)
+            self.struct_name = struct_name
+            self.field_name = field_name
+            self.value = value
+        
+        def __str__(self):
+            return f"{self.struct_name}.{self.field_name} = {self.value}"
