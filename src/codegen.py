@@ -825,8 +825,6 @@ class Codegen:
             # Add a custom metadata node that we can convert to a comment when printing
             comment_md = builder.module.add_metadata([ir.MetaDataString(builder.module, comment_text)])
             
-        
-
     def handle_function_call(self, node, builder: ir.IRBuilder, var_type=None, **kwargs):
         # Handle either dedicated FunctionCall nodes or ExpressionNode with FUNCTION_CALL type
         if isinstance(node, ASTNode.FunctionCall):
@@ -871,8 +869,67 @@ class Codegen:
             result = builder.call(func, llvm_args)
             return result
 
-    def handle_class(self, node, **kwargs):
-        pass
+    def handle_class(self, node: ASTNode.Class, **kwargs):
+        # Get the parent class if any
+        parent_type = None
+        if node.parent:
+            parent_type = Datatypes.get_type(node.parent)
+            if not parent_type:
+                raise Exception(f"Unknown parent class '{node.parent}'")
+        
+        # Create list of field types for the structure
+        field_types = []
+        field_names = []
+        
+        # If there's a parent, include its fields first (inheritance)
+        inherited_fields = []
+        if parent_type and hasattr(parent_type, 'get_fields'):
+            inherited_fields = parent_type.get_fields()
+            for field_name, field_type in inherited_fields:
+                field_names.append(field_name)
+                field_types.append(field_type)
+        
+        # Process each field in the class
+        for field in node.fields:
+            field_type = Datatypes.to_llvm_type(field.var_type)
+            field_types.append(field_type)
+            field_names.append(field.name)
+        
+        # Create the structure type in LLVM
+        struct_type = ir.LiteralStructType(field_types)
+        
+        # Register the class type in the type system
+        # Create a wrapper class to store additional information about our class
+        class ClassTypeInfo:
+            def __init__(self, llvm_type, field_names):
+                self.llvm_type = llvm_type
+                self.field_names = field_names
+                self.parent = parent_type
+            
+            def get_llvm_type(self):
+                return self.llvm_type
+            
+            def get_fields(self):
+                return [(name, self.llvm_type.elements[i]) for i, name in enumerate(self.field_names)]
+            
+            def get_field_index(self, field_name):
+                try:
+                    return self.field_names.index(field_name)
+                except ValueError:
+                    if self.parent:
+                        # Check if the field exists in the parent class
+                        for i, (name, _) in enumerate(self.parent.get_fields()):
+                            if name == field_name:
+                                return i
+                    raise Exception(f"Unknown field '{field_name}' in class '{node.name}'")
+        
+        # Register the class type
+        class_type_info = ClassTypeInfo(struct_type, field_names)
+        Datatypes.add_type(node.name, class_type_info)
+        
+        # No IR is generated at this point, classes are just type definitions
+        return None
+
 
     def handle_union(self, node, **kwargs):
         pass
