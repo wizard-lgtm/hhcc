@@ -301,6 +301,47 @@ class Codegen:
         if is_debug:
             print(f"DEBUG - Operation: {operator}, Left type: {left.type}, Right type: {right.type}")
         
+        # Make sure both operands have the same type
+        if left.type != right.type:
+            if is_debug:
+                print(f"DEBUG - Type mismatch: converting right operand from {right.type} to {left.type}")
+            
+            # For boolean to integer conversions (i1 to i8, etc.)
+            if right.type.width < left.type.width:
+                if right.type.width == 1:  # Converting from boolean (i1)
+                    right = builder.zext(right, left.type, name="bool_to_int")
+                else:
+                    # Handle other integer size conversions
+                    if is_signed:
+                        right = builder.sext(right, left.type, name="sext")
+                    else:
+                        right = builder.zext(right, left.type, name="zext")
+            elif left.type.width < right.type.width:
+                if left.type.width == 1:  # Converting from boolean (i1)
+                    left = builder.zext(left, right.type, name="bool_to_int")
+                else:
+                    # Handle other integer size conversions
+                    if is_signed:
+                        left = builder.sext(left, right.type, name="sext")
+                    else:
+                        left = builder.zext(left, right.type, name="zext") 
+                
+            # Check if we need to handle float conversions
+            if isinstance(left.type, ir.IntType) and isinstance(right.type, (ir.FloatType, ir.DoubleType)):
+                if is_signed:
+                    left = builder.sitofp(left, right.type, name="int_to_float")
+                else:
+                    left = builder.uitofp(left, right.type, name="uint_to_float")
+            elif isinstance(right.type, ir.IntType) and isinstance(left.type, (ir.FloatType, ir.DoubleType)):
+                if is_signed:
+                    right = builder.sitofp(right, left.type, name="int_to_float")
+                else:
+                    right = builder.uitofp(right, left.type, name="uint_to_float")
+        
+        # After conversion, re-check what types we're working with
+        is_float = isinstance(left.type, (ir.FloatType, ir.DoubleType))
+        is_integer = isinstance(left.type, ir.IntType)
+        
         # Handle operations based on operator type
         if operator == operators["ADD"]:
             return builder.add(left, right, name="sum")
@@ -361,19 +402,28 @@ class Codegen:
                 return builder.lshr(left, right, name="lshr")
         # Comparison operators
         elif operator == operators["EQUAL"]:
+            # Ensure operands have the same type for comparison
+            if left.type != right.type:
+                if is_debug:
+                    print(f"DEBUG - Type mismatch in comparison: converting operands to match")
+                if left.type.width > right.type.width:
+                    right = builder.zext(right, left.type, name="zext_for_cmp") if right.type.width == 1 else right
+                else:
+                    left = builder.zext(left, right.type, name="zext_for_cmp") if left.type.width == 1 else left
+            
             if is_integer:
                 if is_signed:
                     if is_debug:
                         print(f"DEBUG - Using SIGNED integer comparison (==)")
-                    return builder.icmp_signed('==', left, right, name="seq")
+                    return builder.icmp_signed('==', left, right, name="seq")  # Will return i1
                 else:
                     if is_debug:
                         print(f"DEBUG - Using UNSIGNED integer comparison (==)")
-                    return builder.icmp_unsigned('==', left, right, name="ueq")
+                    return builder.icmp_unsigned('==', left, right, name="ueq")  # Will return i1
             else:
                 if is_debug:
                     print(f"DEBUG - Using floating point comparison (==)")
-                return builder.fcmp_ordered('==', left, right, name="feq")
+                return builder.fcmp_ordered('==', left, right, name="feq")  # Will return i1
         elif operator == operators["NOT_EQUAL"]:
             if is_integer:
                 if is_signed:
@@ -500,7 +550,6 @@ class Codegen:
             return builder.or_(left_bool, right_bool, name="lor")
         else:
             raise ValueError(f"Unsupported binary operator: {operator}")
-
 
     def get_variable_value(name: str):
         # Find variable and get it's value
@@ -657,6 +706,11 @@ class Codegen:
         # Evaluate the condition
         condition = self.handle_expression(node.condition, builder, self.type_map[Datatypes.BOOL])
 
+        condition = self.handle_expression(node.condition, builder, self.type_map[Datatypes.BOOL])
+        if condition.type != ir.IntType(1):
+            condition = builder.trunc(condition, ir.IntType(1))
+
+
         # Create basic blocks for the 'then', 'else', and 'merge' sections
         then_block = builder.append_basic_block("if.then")
         else_block = builder.append_basic_block("if.else") if node.else_body else None
@@ -722,7 +776,7 @@ class Codegen:
 
         # Branch to the condition block
         builder.branch(loop_cond_block)
-
+        
         # Generate code for the condition block
         builder.position_at_end(loop_cond_block)
         if node.condition:
@@ -747,7 +801,7 @@ class Codegen:
 
         # Return to the condition block for the next iteration
         builder.branch(loop_cond_block)
-
+        
         # Position the builder at the end block
         builder.position_at_end(loop_end_block)
 
