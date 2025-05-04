@@ -1,12 +1,13 @@
-
-class Test{
-    U8 a;
-    U8 b;
-    U8 c;
+class Node{
+    U8 value;
 };
+
 U8 main(){
-    Test t;
-    t.a = 1;
-    U8 d = t.a;
-    return d;
+    Node n1;
+    Node n2;
+    
+    n1.value = 1;
+    n2.value = 2;
+
+    return 0;
 }
