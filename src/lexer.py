@@ -145,18 +145,26 @@ class Datatypes:
 
 
     @classmethod
-    def get_llvm_type(self, type_name: str):
-        if type_name in self.type_info:
-            return self.type_info[type_name]["type"]
-        # Handle pointer and other types as before
+    def get_llvm_type(cls, type_name: str):
+        if type_name in cls.type_info:
+            return cls.type_info[type_name]["type"]
+        
+        # Handle pointer types
         elif type_name.endswith('*'):
-            base_type = self.get_llvm_type(type_name[:-1])
+            base_type = cls.get_llvm_type(type_name[:-1])
             return ir.PointerType(base_type)
+        
+        # Handle user-defined struct/class types
+        elif type_name in cls.user_defined_types:
+            return cls.user_defined_types[type_name].get_llvm_type()
+        
         else:
-            print("Non-Primitive types not implemented. Returning a generic type (U8*)")
-            return ir.PointerType(ir.IntType(8))
-
-
+            raise Exception(f"Unknown type '{type_name}'")
+            
+    @classmethod
+    def get_type(cls, name: str):
+        return cls.user_defined_types.get(name, None)
+        
     @classmethod
     def is_signed_type(cls, type_name: str) -> bool:
         """Determine if a type is signed."""
