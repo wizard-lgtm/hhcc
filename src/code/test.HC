@@ -4,6 +4,19 @@ U8 test(){
     return 200;
 }
 
+class Test{
+    U8 a;
+    U8 b;
+    U8 c;
+    U8 d;
+    U8 e;
+    U8 f;
+    U8 g;
+    U8 h;
+    U8 i;
+    U8 j;
+};
+
 U8 main() {
     // Arithmetic operations
     U8 a = 10 + 5;         // Addition: 15
@@ -47,6 +60,8 @@ U8 main() {
     }
 
     U8 a = test();
+
+    Test t;
 
     return a;
 }
