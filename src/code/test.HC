@@ -1,5 +1,9 @@
 // Test file for binary operations
 
+U8 test(){
+    return 200;
+}
+
 U8 main() {
     // Arithmetic operations
     U8 a = 10 + 5;         // Addition: 15
@@ -34,12 +38,9 @@ U8 main() {
     // Complex expression
     U8 result = a + b * c / d - e & f;
     U8 result = a + b * c / d - e;
-    if (1==1){
-        return 2;
-    }
+
     U8 interval = 0;
-    while(interval < 10){
-        interval = interval + 1;
-    }
-    return result;
+
+    U8 a = test();
+    return a;
 }

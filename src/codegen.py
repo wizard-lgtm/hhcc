@@ -573,6 +573,7 @@ class Codegen:
                 except ValueError:
                     raise ValueError(f"Invalid literal or undefined variable: '{node.value}'")
 
+
     def handle_expression(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
         if node is None:
             return None
@@ -594,6 +595,15 @@ class Codegen:
             else:
                 # It's an actual literal value, create a constant
                 try:
+                    # Handle boolean literals first - check for 'true' and 'false'
+                    if isinstance(var_type, ir.IntType) and var_type.width == 1:
+                        # This is a Bool type (i1 in LLVM)
+                        if node.value.lower() == 'true':
+                            return ir.Constant(var_type, 1)
+                        elif node.value.lower() == 'false':
+                            return ir.Constant(var_type, 0)
+                        # If it's not 'true' or 'false', fall through to the numeric parsing
+                    
                     # Handle different literal types based on var_type
                     if isinstance(var_type, ir.IntType):
                         # Check if the type should be signed or unsigned for proper parsing
