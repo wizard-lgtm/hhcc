@@ -681,6 +681,7 @@ class Codegen:
     def handle_variable_declaration(self, node: ASTNode.VariableDeclaration, builder: ir.IRBuilder, **kwargs):
         # Allocate space for the variable
         var_type = Datatypes.to_llvm_type(node.var_type)
+        print("var_type2", var_type)
         var = builder.alloca(var_type, name=node.name)  
 
         # Store variable in symbol table
@@ -1026,44 +1027,83 @@ class Codegen:
                     return f"<ClassTypeInfo: fields={self.field_names}, parent={self.parent}, llvm_type={self.llvm_type}>"
 
     def handle_class(self, node: ASTNode.Class, **kwargs):
-        # Get the parent class if any
-        parent_type = None
+        """
+        Handles the definition of a class in the source code and generates
+        the corresponding identified LLVM struct type.
+
+        Args:
+            node: The AST node representing the class definition.
+            **kwargs: Additional keyword arguments (not used in this snippet).
+        """
+        # Get the parent class info if any
+        parent_type_info = None
         if node.parent:
-            parent_type = Datatypes.get_type(node.parent)
-            if not parent_type:
+            parent_type_info = Datatypes.get_type(node.parent)
+            if not parent_type_info:
                 raise Exception(f"Unknown parent class '{node.parent}'")
-        
-        # Create list of field types for the structure
-        field_types = []
+
+        # --- START: Handling Identified LLVM Struct Types ---
+
+        # 1. Create the identified (named) struct type in the LLVM context.
+        # This type is initially 'opaque' (its contents are not yet defined).
+        # We use a standard naming convention like '%struct.ClassName'.
+        llvm_struct_name = f"%struct.{node.name}"
+        # Use global_context to get the type by name. If it doesn't exist, it's created.
+        struct_type = ir.global_context.get_identified_type(llvm_struct_name)
+
+        # 2. Collect the LLVM types for each field in the class.
+        # We need to do this *after* creating the identified type so that
+        # self-referential fields (like 'Node next' in a Node class) can
+        # correctly refer to a pointer to 'struct_type'.
+        field_llvm_types = []
         field_names = []
-        
-        # If there's a parent, include its fields first (inheritance)
-        inherited_fields = []
-        if parent_type and hasattr(parent_type, 'get_fields'):
-            inherited_fields = parent_type.get_fields()
+
+        # If there's a parent, include its field types first (inheritance).
+        # Ensure inherited_fields provides LLVM types compatible with the parent's struct layout.
+        if parent_type_info and hasattr(parent_type_info, 'get_fields'):
+            inherited_fields = parent_type_info.get_fields() # Assuming this returns [(name, llvm_type)]
             for field_name, field_type in inherited_fields:
                 field_names.append(field_name)
-                field_types.append(field_type)
-        
-        # Process each field in the class
+                field_llvm_types.append(field_type)
+
+        # Process each field defined directly in this class.
         for field in node.fields:
-            field_type = Datatypes.to_llvm_type(field.var_type)
-            field_types.append(field_type)
+            # Convert the source type name to its corresponding LLVM type.
+            # Special handling is needed here for fields that are pointers to *this* class.
+            if field.var_type == node.name:
+                # If the field type is the same as the class being defined,
+                # it should be a pointer to this identified struct type.
+                field_llvm_type = struct_type.as_pointer()
+            else:
+                # For other types, use the standard conversion.
+                # Datatypes.to_llvm_type should handle base types (U8, etc.)
+                # and potentially look up other defined class types (usually returning pointers).
+                field_llvm_type = Datatypes.to_llvm_type(field.var_type)
+
+            field_llvm_types.append(field_llvm_type)
             field_names.append(field.name)
-        
-        # Create the structure type in LLVM
-        struct_type = ir.LiteralStructType(field_types)
-        
-        # Create a wrapper class to store additional information about our class
-      
-        
-        # Register the class type
-        class_type_info = self.ClassTypeInfo(struct_type, field_names, parent_type, node)
+
+        # 3. Set the body of the identified struct type.
+        # This defines the actual layout (the sequence of field types) for the struct.
+        # This step completes the definition of the 'opaque' type created earlier.
+        struct_type.set_body(*field_llvm_types) # Use * to unpack the list of types
+
+        # --- END: Handling Identified LLVM Struct Types ---
+
+        # Create a wrapper object to store additional information about our class,
+        # including the now-defined LLVM struct type.
+        class_type_info = self.ClassTypeInfo(struct_type, field_names, parent_type_info, node)
+
+        # Register the class type info in your type system.
+        # This makes the 'Node' source type name map to the 'class_type_info' object,
+        # which contains the LLVM 'struct_type'.
         Datatypes.add_type(node.name, class_type_info)
-        
-        # Store the struct info with the class name, not the variable name
+
+        # Store the struct info in your internal table (if needed).
+        # Ensure you are storing the class name as the key.
         self.struct_table[node.name] = {'name': node.name, 'class_type_info': class_type_info}
-        
+
+        # This function typically doesn't return an LLVM value, just defines the type.
         return None
 
 
