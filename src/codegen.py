@@ -582,11 +582,13 @@ class Codegen:
         if node is None:
             raise ValueError("Node is None, cannot handle expression.")
 
+        print(node)
+    
         match node.node_type:
             case NodeType.BINARY_OP:
                 return self.handle_binary_expression(node, builder, var_type)
 
-            case NodeType.REFERENCE if node.value == '&':
+            case NodeType.REFERENCE:
                 return self.handle_pointer(node, builder)
 
             case NodeType.FUNCTION_CALL:
@@ -679,24 +681,57 @@ class Codegen:
         pass
 
     def handle_variable_declaration(self, node: ASTNode.VariableDeclaration, builder: ir.IRBuilder, **kwargs):
-        # Allocate space for the variable
-        var_type = Datatypes.to_llvm_type(node.var_type)
-        print("var_type2", var_type)
-        var = builder.alloca(var_type, name=node.name)  
-
-        # Store variable in symbol table
-        self.symbol_table[node.name] = {"type_name": node.var_type, "var": var}
-        
-        # Handle initial value if present
-        if node.value:
-            value = self.handle_expression(node.value, builder, var_type)
-            print("value from expression", value)
-            if not value:
-                value = ir.Constant(var_type, 0)  # Default to zero if no value is provided
-            builder.store(value, var)
-        
-        return var # Return the variable pointer
-    
+            # Check if this is a pointer type declaration
+            is_pointer = False
+            base_type_name = node.var_type
+            
+            if node.var_type.endswith('*'):
+                is_pointer = True
+                base_type_name = node.var_type[:-1]  # Remove the asterisk
+            
+            # Get the base type
+            base_type = Datatypes.to_llvm_type(base_type_name)
+            
+            # If it's a pointer, create a pointer to the base type
+            if is_pointer:
+                var_type = ir.PointerType(base_type)
+            else:
+                var_type = base_type
+                
+            print("var_type2", var_type)
+            
+            # Allocate space for the variable
+            var = builder.alloca(var_type, name=node.name)
+            
+            # Store variable in symbol table
+            self.symbol_table[node.name] = {
+                "type_name": node.var_type,
+                "var": var,
+                "alloca": var,  # Add the alloca directly for pointer operations
+                "is_pointer": is_pointer
+            }
+            
+            # Handle initial value if present
+            if node.value:
+                value = self.handle_expression(node.value, builder, var_type)
+                print("value from expression", value)
+                
+                if not value:
+                    if is_pointer:
+                        # Initialize to null pointer
+                        value = ir.Constant(var_type, None)
+                    else:
+                        # Default to zero for non-pointer types
+                        value = ir.Constant(var_type, 0)
+                        
+                builder.store(value, var)
+            else:
+                # Initialize pointers to null by default if no value is provided
+                if is_pointer:
+                    null_ptr = ir.Constant(var_type, None)
+                    builder.store(null_ptr, var)
+            
+            return var  # Return the variable pointer
 
     def get_struct_field_ptr(self, struct_name: str, field_name: str, builder: ir.IRBuilder):
         """
@@ -1122,8 +1157,81 @@ class Codegen:
     def handle_array_initialization(self, node, **kwargs):
         pass
 
-    def handle_pointer(self, node, **kwargs):
-        pass
 
-    def handle_reference(self, node, **kwargs):
-        pass
+    def handle_pointer(self, node, builder, **kwargs):
+        """
+        Handle pointer operations (&) to get the address of a variable.
+        
+        Args:
+            node: The AST node representing the pointer operation
+            builder: The LLVM IR builder
+            **kwargs: Additional keyword arguments
+            
+        Returns:
+            The pointer value as an LLVM IR value
+        """
+        # The child node should be the variable we're getting the address of
+        child_node = node.left [0] if node.left else None
+        if not child_node:
+            raise ValueError("Invalid pointer operation: missing target operand")
+        
+        # Get the variable reference
+        if child_node.node_type == NodeType.REFERENCE:
+            # Get the variable name
+            var_name = child_node.value
+            
+            # Look up the variable in the symbol table
+            if var_name not in self.symbol_table:
+                raise ValueError(f"Cannot take address of undefined variable: {var_name}")
+            
+            var_alloca = self.symbol_table[var_name]['alloca']
+            return var_alloca  # The alloca instruction itself is the pointer
+        elif child_node.node_type == NodeType.STRUCT_ACCESS:
+            # Handle getting address of a struct field
+            struct_ptr = self.handle_struct_access(child_node, builder, get_pointer=True)
+            return struct_ptr
+        else:
+            raise ValueError(f"Cannot take address of {child_node.node_type}")
+
+    def handle_reference(self, node, builder, **kwargs):
+        """
+        Handle variable references (dereferencing pointers with *).
+        
+        Args:
+            node: The AST node representing the reference operation
+            builder: The LLVM IR builder
+            **kwargs: Additional keyword arguments
+            
+        Returns:
+            The dereferenced value as an LLVM IR value
+        """
+        # Check if this is a dereference operation (*)
+        if node.value == '*':
+            # The child node should be the pointer we're dereferencing
+            child_node = node.children[0] if node.children else None
+            if not child_node:
+                raise ValueError("Invalid dereference operation: missing pointer operand")
+            
+            # Get the pointer value
+            ptr_value = self.handle_expression(child_node, builder, None)
+            
+            # Determine the pointee type
+            ptr_type = ptr_value.type
+            if not isinstance(ptr_type, ir.PointerType):
+                raise ValueError("Cannot dereference a non-pointer value")
+            
+            # Load the value from the pointer
+            return builder.load(ptr_value, name="deref")
+        
+        # If it's a normal variable reference (not a dereference)
+        var_name = node.value
+        
+        # Look up the variable in the symbol table
+        if var_name not in self.symbol_table:
+            raise ValueError(f"Reference to undefined variable: {var_name}")
+        
+        var_info = self.symbol_table[var_name]
+        var_alloca = var_info['alloca']
+        
+        # Load the value from the alloca
+        return builder.load(var_alloca, name=f"{var_name}_value")
