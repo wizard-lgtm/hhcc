@@ -645,11 +645,8 @@ class ASTParser:
         # Parse fields until we hit the closing brace
         while self.current_token() and self.current_token().value != separators["RBRACE"]:
             # Parse field declaration
-            if self.current_token()._type == TokenType.KEYWORD and self.current_token().value in Datatypes.all_types():
-                var = self.variable_declaration()
-                fields.append(var)
-            else:
-                self.syntax_error("Expected field declaration", self.current_token())
+            var = self.variable_declaration()
+            fields.append(var)
         
         # Check if we found the closing brace
         if not self.current_token() or self.current_token().value != separators["RBRACE"]:
