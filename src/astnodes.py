@@ -333,7 +333,8 @@ class ASTNode:
             return result
 
         def __repr__(self) -> str:
-            return self.print_tree()
+            return self.name
+
 
     class Union:
         def __init__(self, name: str, fields: List['ASTNode.VariableDeclaration']):
