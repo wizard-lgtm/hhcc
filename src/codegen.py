@@ -7,58 +7,235 @@ from lexer import *
 if TYPE_CHECKING:
     from compiler import Compiler  # Only for type hints
 
+class SymbolKind(Enum):
+    """Enum for different kinds of symbols."""
+    VARIABLE = auto()
+    FUNCTION = auto()
+    TYPE = auto()
+    PARAMETER = auto()
+    CLASS = auto()
+    UNION = auto()
+
+
 class Symbol:
-    name: str
-    ast_node: ASTNode
-    datatype: Datatypes
-    llvm_ptr: ir.Value
-    llvm_ptr = Optional[ir.Value] = None 
-    def __init__(self, name: str, ast_node: ASTNode, datatype: Datatypes, llvm_type, llvm_ptr:ir.Value=None):
+    """
+    Represents a symbol in the symbol table.
+    A symbol can be a variable, function, type, etc.
+    """
+    def __init__(self, 
+                 name: str, 
+                 kind: SymbolKind, 
+                 ast_node: Any, 
+                 data_type: Any,
+                 llvm_type: Any = None, 
+                 llvm_value: Optional[ir.Value] = None, 
+                 scope_level: int = 0,
+                 is_pointer: bool = False):
         self.name = name
+        self.kind = kind
         self.ast_node = ast_node
-        self.datatype = datatype  # e.g., 'MyStruct'
-        self.llvm_ptr = llvm_ptr  # Will be set later during codegen
-        self.llvm_type = llvm_type
+        self.data_type = data_type  # The language type (e.g., 'U8', 'MyStruct')
+        self.llvm_type = llvm_type  # The LLVM type
+        self.llvm_value = llvm_value  # LLVM value or pointer
+        self.scope_level = scope_level
+        self.is_pointer = is_pointer
+        # Additional data for specific symbol kinds
+        self.extra_data: Dict[str, Any] = {}
+
+    def __repr__(self) -> str:
+        return f"Symbol(name='{self.name}', kind={self.kind}, type={self.data_type}, scope={self.scope_level})"
+
+
+class Scope:
+    """Represents a single scope level in the symbol table."""
+    def __init__(self, level: int):
+        self.level = level
+        self.symbols: Dict[str, Symbol] = {}
+
+    def define(self, symbol: Symbol) -> None:
+        """Define a symbol in this scope."""
+        if symbol.name in self.symbols:
+            raise ValueError(f"Symbol '{symbol.name}' already defined in scope {self.level}")
+        self.symbols[symbol.name] = symbol
+
+    def lookup(self, name: str) -> Optional[Symbol]:
+        """Look up a symbol in this scope."""
+        return self.symbols.get(name)
+
+    def get_all_symbols(self) -> List[Symbol]:
+        """Get all symbols in this scope."""
+        return list(self.symbols.values())
 
 
 class SymbolTable:
+    """
+    Symbol table with scope management.
+    Manages multiple scopes for block-level variable declarations.
+    """
     def __init__(self):
-        self.table = {}
+        self.scopes: List[Scope] = [Scope(0)]  # Start with global scope (level 0)
+        self.current_scope_level = 0
 
-    def register(self, name, ast_node):
-        if name in self.table:
-            raise Exception(f"Symbol '{name}' already defined")
-        self.table[name] = Symbol(name, ast_node)
+    @property
+    def current_scope(self) -> Scope:
+        """Get the current scope."""
+        return self.scopes[self.current_scope_level]
 
-    def has(self, name):
-        return name in self.table
+    def enter_scope(self) -> int:
+        """
+        Enter a new scope level.
+        Returns the new scope level.
+        """
+        self.current_scope_level += 1
+        # Create the new scope if it doesn't exist
+        if len(self.scopes) <= self.current_scope_level:
+            self.scopes.append(Scope(self.current_scope_level))
+        return self.current_scope_level
 
-    def get(self, name):
-        if name not in self.table:
-            raise Exception(f"Symbol '{name}' not found")
-        return self.table[name]
+    def exit_scope(self) -> int:
+        """
+        Exit the current scope level.
+        Returns the new (previous) scope level.
+        """
+        if self.current_scope_level > 0:
+            self.current_scope_level -= 1
+        return self.current_scope_level
 
-    def set_llvm_ptr(self, name, ptr):
-        if name not in self.table:
-            raise Exception(f"Symbol '{name}' not found")
-        self.table[name].llvm_ptr = ptr
+    def define(self, symbol: Symbol) -> Symbol:
+        """
+        Define a symbol in the current scope.
+        Sets the scope level on the symbol and adds it to the current scope.
+        """
+        # Set the scope level on the symbol
+        symbol.scope_level = self.current_scope_level
+        # Add to current scope
+        self.current_scope.define(symbol)
+        return symbol
 
-    def get_llvm_ptr(self, name):
-        if name not in self.table:
-            raise Exception(f"Symbol '{name}' not found")
-        symbol = self.table[name]
-        if symbol.llvm_ptr is None:
-            raise Exception(f"LLVM pointer not yet assigned for '{name}'")
-        return symbol.llvm_ptr                                      
+    def lookup(self, name: str, current_scope_only: bool = False) -> Optional[Symbol]:
+        """
+        Look up a symbol by name.
+        If current_scope_only is True, only look in the current scope.
+        Otherwise, look in all scopes from current to global.
+        """
+        if current_scope_only:
+            return self.current_scope.lookup(name)
+        
+        # Search from current scope up to global scope
+        for level in range(self.current_scope_level, -1, -1):
+            symbol = self.scopes[level].lookup(name)
+            if symbol:
+                return symbol
+        
+        return None
+
+    def lookup_in_scope(self, name: str, scope_level: int) -> Optional[Symbol]:
+        """Look up a symbol in a specific scope level."""
+        if 0 <= scope_level < len(self.scopes):
+            return self.scopes[scope_level].lookup(name)
+        return None
+
+    def remove(self, name: str, scope_level: Optional[int] = None) -> bool:
+        """
+        Remove a symbol from the specified scope or current scope if not specified.
+        Returns True if the symbol was found and removed, False otherwise.
+        """
+        if scope_level is None:
+            scope_level = self.current_scope_level
+        
+        if 0 <= scope_level < len(self.scopes):
+            scope = self.scopes[scope_level]
+            if name in scope.symbols:
+                del scope.symbols[name]
+                return True
+        
+        return False
+
+    def exists(self, name: str, current_scope_only: bool = False) -> bool:
+        """Check if a symbol exists in the symbol table."""
+        return self.lookup(name, current_scope_only) is not None
+
+    def get_all_symbols(self, include_parent_scopes: bool = False) -> List[Symbol]:
+        """
+        Get all symbols in the current scope.
+        If include_parent_scopes is True, include symbols from all parent scopes.
+        """
+        if not include_parent_scopes:
+            return self.current_scope.get_all_symbols()
+        
+        all_symbols = []
+        for level in range(self.current_scope_level + 1):
+            all_symbols.extend(self.scopes[level].get_all_symbols())
+        
+        return all_symbols
+
+    def get_functions(self) -> List[Symbol]:
+        """Get all function symbols."""
+        functions = []
+        for scope in self.scopes:
+            for symbol in scope.symbols.values():
+                if symbol.kind == SymbolKind.FUNCTION:
+                    functions.append(symbol)
+        return functions
+
+    def get_types(self) -> List[Symbol]:
+        """Get all type symbols (classes, unions, etc.)."""
+        types = []
+        for scope in self.scopes:
+            for symbol in scope.symbols.values():
+                if symbol.kind == SymbolKind.TYPE or symbol.kind == SymbolKind.CLASS or symbol.kind == SymbolKind.UNION:
+                    types.append(symbol)
+        return types
+
+    def dump(self) -> str:
+        """Dump the symbol table as a string for debugging."""
+        result = "Symbol Table:\n"
+        for level, scope in enumerate(self.scopes):
+            result += f"  Scope level {level}:\n"
+            for name, symbol in scope.symbols.items():
+                result += f"    {symbol}\n"
+        return result
+
+    def __getitem__(self, name: str) -> Optional[Symbol]:
+        """Allow dict-like access to the symbol table."""
+        return self.lookup(name)
+
+    def __contains__(self, name: str) -> bool:
+        """Allow 'in' operator to check if a symbol exists."""
+        return self.exists(name)
+
+
+# Helper functions for creating common types of symbols
+def create_variable_symbol(name: str, ast_node: Any, data_type: Any, 
+                          llvm_type: Any = None, llvm_value: Optional[ir.Value] = None, 
+                          scope_level: int = 0, is_pointer: bool = False) -> Symbol:
+    """Create a variable symbol."""
+    return Symbol(name, SymbolKind.VARIABLE, ast_node, data_type, 
+                 llvm_type, llvm_value, scope_level, is_pointer)
+
+
+def create_function_symbol(name: str, ast_node: Any, return_type: Any, 
+                          parameter_types: List[Any], llvm_function: Optional[ir.Function] = None, 
+                          scope_level: int = 0) -> Symbol:
+    """Create a function symbol."""
+    symbol = Symbol(name, SymbolKind.FUNCTION, ast_node, return_type, 
+                   None, llvm_function, scope_level)
+    symbol.extra_data['parameter_types'] = parameter_types
+    return symbol
+
+
+def create_type_symbol(name: str, ast_node: Any, llvm_type: Any = None, 
+                      scope_level: int = 0) -> Symbol:
+    """Create a type symbol (class, struct, enum, etc.)."""
+    symbol = Symbol(name, SymbolKind.TYPE, ast_node, name, llvm_type, None, scope_level)
+    return symbol
+
 
 class Codegen:
     def __init__(self, compiler: "Compiler"):
-
-        self.symbol_table = {}           # Maps variable names to their allocations
-        self.function_table = {}         # Maps function names to their definitions
-        self.struct_table = {}           # Maps struct type names to their definitions
-        self.variable_types = {}         # Maps variable names to their type names
-
+        # Initialize the new symbol table
+        self.symbol_table = SymbolTable()
+        
         self.compiler = compiler
         self.astnodes = compiler.astnodes
         if self.compiler.triple:
@@ -67,8 +244,11 @@ class Codegen:
             self.triple = ""
 
         self.node_index = 0
-
         self.current_node = self.astnodes[self.node_index]
+        
+        # For storing function and struct information
+        self.function_map = {}
+        self.struct_table = {}
 
         # Node type to handler mapping
         self.node_handlers: Dict[Type, Callable] = {
@@ -133,7 +313,6 @@ class Codegen:
             self.type_map[Datatypes.U64]: False,
             self.type_map[Datatypes.BOOL]: False,
         }
-
 
         self.signed_int_types = {i8_type, i16_type, i32_type, i64_type}
         self.unsigned_int_types = {bool_type, u8_type, u16_type, u32_type, u64_type}
@@ -259,34 +438,86 @@ class Codegen:
         llvm_type  = self.type_map[type]
         return llvm_type
 
-    def handle_function_definition(self, node: ASTNode.FunctionDefinition, **kwargs):
+    def handle_function_definition(self, node: ASTNode.FunctionDefinition, builder: Optional[ir.IRBuilder] = None, **kwargs):
+        """Handle function definition with the new symbol table."""
         name = node.name
         return_type = Datatypes.to_llvm_type(node.return_type)
 
         node_params: List[ASTNode.VariableDeclaration] = node.parameters
-
-        llvm_params = [] 
+        llvm_params = []
+        param_types = []
 
         # Parse args
         for param in node_params:
             if param.is_user_typed:
                 print("NOT IMPLEMENTED! user typed parameters")
             if param.is_pointer:
-                print("NOT IMPLEMNTED, function pointer types")
-            llvm_params.append(self.type_map[param.var_type])
+                print("NOT IMPLEMENTED, function pointer types")
+            
+            param_type = self.type_map[param.var_type]
+            llvm_params.append(param_type)
+            param_types.append(param.var_type)
         
-        node.parameters
+        # Create the function type and function
         func_type = ir.FunctionType(return_type, llvm_params)
         func = ir.Function(self.module, func_type, name)
-        # Handle function body if we have
+        
+        # Create and store the function symbol
+        func_symbol = create_function_symbol(
+            name=name,
+            ast_node=node,
+            return_type=node.return_type,
+            parameter_types=param_types,
+            llvm_function=func
+        )
+        self.symbol_table.define(func_symbol)
+        
+        # Also store in function map for backward compatibility
+        self.function_map[name] = func
+        
+        # Handle function body if we have one
         if node.body:
+            # Create a new scope for the function body
+            self.symbol_table.enter_scope()
+            
+            # Create the entry block and builder
             entry_block = func.append_basic_block("entry")
-            builder = ir.IRBuilder(entry_block)
-            # Parse block
-            for body_node in node.body.nodes:
-                self.process_node(body_node, builder=builder)
+            local_builder = ir.IRBuilder(entry_block)
+            
+            # Define function parameters in the symbol table
+            for i, (param, llvm_param) in enumerate(zip(node_params, func.args)):
+                # Allocate space for the parameter
+                param_ptr = local_builder.alloca(llvm_param.type, name=f"{param.name}_param")
+                local_builder.store(llvm_param, param_ptr)
                 
-        self.symbol_table[func.name] = func
+                # Add parameter to symbol table
+                param_symbol = Symbol(
+                    name=param.name,
+                    kind=SymbolKind.PARAMETER,
+                    ast_node=param,
+                    data_type=param.var_type,
+                    llvm_type=llvm_param.type,
+                    llvm_value=param_ptr,
+                    scope_level=self.symbol_table.current_scope_level
+                )
+                self.symbol_table.define(param_symbol)
+            
+            # Process the function body
+            self.process_node(node.body, builder=local_builder)
+            
+            # Ensure the function has a return statement if needed
+            last_block = local_builder.block
+            if not last_block.is_terminated:
+                if return_type == ir.VoidType():
+                    local_builder.ret_void()
+                else:
+                    # For non-void functions, add a default return value
+                    local_builder.ret(ir.Constant(return_type, 0))
+            
+            # Exit the function scope
+            self.symbol_table.exit_scope()
+        
+        return func
 
 
     def handle_binary_expression(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
@@ -595,14 +826,13 @@ class Codegen:
             raise ValueError(f"Unsupported binary operator: {operator}")
         
     def get_variable_pointer(self, name):
-        if name not in self.symbol_table:
+        """Get the LLVM value pointer for a variable."""
+        symbol = self.symbol_table.lookup(name)
+        if not symbol:
             raise Exception(f"Undefined variable: {name}")
         
-        return self.symbol_table[name]
+        return symbol.llvm_value
 
-    def get_variable_value(name: str):
-        # Find variable and get it's value
-        pass
 
     def handle_primary_expression(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
         if node.node_type == NodeType.REFERENCE and node.value == '&': 
@@ -652,12 +882,16 @@ class Codegen:
                 raise ValueError(f"Unsupported expression node type: {node.node_type}")
 
 
-    def handle_pointer(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, **kwargs):
-        var_ptr = self.get_variable_pointer(node.left.value)
-        print(var_ptr)
-        raise ValueError("Handle Pointer function not implemented")
-        pass
 
+    def handle_pointer(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, **kwargs):
+        print(node.left.value)
+        var_ptr = self.get_variable_pointer(node.left.value)
+        
+        print(var_ptr)
+
+        return var_ptr
+
+    
     def _expression_handle_literal(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type):
         # Handle variable reference if it's in the symbol table
         if node.value in self.symbol_table:
@@ -671,6 +905,14 @@ class Codegen:
                     return ir.Constant(var_type, 1)
                 elif node.value.lower() == 'false':
                     return ir.Constant(var_type, 0)
+
+            # Handle NULL (zero) pointer
+            if isinstance(var_type, ir.PointerType) and node.value == "0":
+                int32 = ir.IntType(32)
+                int32_ptr = int32.as_pointer()
+                null_ptr = ir.Constant(int32_ptr, None)
+                
+                return null_ptr
 
             # Integer literals
             if isinstance(var_type, ir.IntType):
@@ -699,16 +941,18 @@ class Codegen:
 
     def handle_struct_access(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder):
         # For example 't.a' where 't' is the struct variable and 'a' is the field
+        print(node)
         struct_name = node.left.value       # 't'
         field_name = node.right.value       # 'a'
 
         # Lookup struct variable
-        struct_info = self.symbol_table.get(struct_name)
+        print(f"STURCT NAME IS {struct_name}")
+        struct_info = self.symbol_table.lookup(struct_name)
         if not struct_info:
             raise ValueError(f"Unknown struct variable: {struct_name}")
 
-        struct_ptr = struct_info.get("var")
-        struct_type_name = struct_info.get("type_name")
+        struct_ptr = struct_info.llvm_value
+        struct_type_name = struct_info.data_type
 
         if struct_ptr is None or struct_type_name is None:
             raise ValueError(f"Invalid struct entry for '{struct_name}'.")
@@ -731,61 +975,71 @@ class Codegen:
         print(dxx)
         return dxx
 
-    def handle_block(self, node):
-        pass
+    def handle_block(self, node: ASTNode.Block, builder: ir.IRBuilder, **kwargs):
+        """Handle a block of statements with proper scope management."""
+        # Enter a new scope for this block
+        self.symbol_table.enter_scope()
+        
+        # Process each statement in the block
+        for stmt in node.nodes:
+            self.process_node(stmt, builder=builder, **kwargs)
+        
+        # Exit the scope when done with the block
+        self.symbol_table.exit_scope()
 
     def handle_variable_declaration(self, node: ASTNode.VariableDeclaration, builder: ir.IRBuilder, **kwargs):
-            # Check if this is a pointer type declaration
-            is_pointer = False
-            base_type_name = node.var_type
+        """Handle variable declaration with the new symbol table."""
+        # Check if this is a pointer type declaration
+        is_pointer = False
+        base_type_name = node.var_type
+        
+        if node.var_type.endswith('*'):
+            is_pointer = True
+            base_type_name = node.var_type[:-1]  # Remove the asterisk
+        
+        # Get the base type
+        base_type = Datatypes.to_llvm_type(base_type_name)
+        
+        # If it's a pointer, create a pointer to the base type
+        if is_pointer:
+            var_type = ir.PointerType(base_type)
+        else:
+            var_type = base_type
             
-            if node.var_type.endswith('*'):
-                is_pointer = True
-                base_type_name = node.var_type[:-1]  # Remove the asterisk
+        # Allocate space for the variable
+        var = builder.alloca(var_type, name=node.name)
+        
+        # Create and store the symbol in our table
+        symbol = create_variable_symbol(
+            name=node.name,
+            ast_node=node,
+            data_type=node.var_type,
+            llvm_type=var_type,
+            llvm_value=var,
+            is_pointer=is_pointer
+        )
+        self.symbol_table.define(symbol)
+        
+        # Handle initial value if present
+        if node.value:
+            value = self.handle_expression(node.value, builder, var_type)
             
-            # Get the base type
-            base_type = Datatypes.to_llvm_type(base_type_name)
-            
-            # If it's a pointer, create a pointer to the base type
-            if is_pointer:
-                var_type = ir.PointerType(base_type)
-            else:
-                var_type = base_type
-                
-            print("var_type2", var_type)
-            
-            # Allocate space for the variable
-            var = builder.alloca(var_type, name=node.name)
-            
-            # Store variable in symbol table
-            self.symbol_table[node.name] = {
-                "type_name": node.var_type,
-                "var": var,
-                "alloca": var,  # Add the alloca directly for pointer operations
-                "is_pointer": is_pointer
-            }
-            
-            # Handle initial value if present
-            if node.value:
-                value = self.handle_expression(node.value, builder, var_type)
-                print("value from expression", value)
-                
-                if not value:
-                    if is_pointer:
-                        # Initialize to null pointer
-                        value = ir.Constant(var_type, None)
-                    else:
-                        # Default to zero for non-pointer types
-                        value = ir.Constant(var_type, 0)
-                        
-                builder.store(value, var)
-            else:
-                # Initialize pointers to null by default if no value is provided
+            if not value:
                 if is_pointer:
-                    null_ptr = ir.Constant(var_type, None)
-                    builder.store(null_ptr, var)
-            
-            return var  # Return the variable pointer
+                    # Initialize to null pointer
+                    value = ir.Constant(var_type, None)
+                else:
+                    # Default to zero for non-pointer types
+                    value = ir.Constant(var_type, 0)
+                    
+            builder.store(value, var)
+        else:
+            # Initialize pointers to null by default if no value is provided
+            if is_pointer:
+                null_ptr = ir.Constant(var_type, None)
+                builder.store(null_ptr, var)
+        
+        return var  # Return the variable pointer
 
     def get_struct_field_ptr(self, struct_name: str, field_name: str, builder: ir.IRBuilder):
         """
@@ -795,13 +1049,12 @@ class Codegen:
         if struct_name not in self.symbol_table:
             raise ValueError(f"Struct variable '{struct_name}' not found.")
 
-        struct_info = self.symbol_table[struct_name]
-        struct_ptr = struct_info["var"]
-        struct_type_name = struct_info["type_name"]
+        
+        struct_info = self.symbol_table.lookup(struct_name)
+        struct_ptr = struct_info.llvm_value
+        struct_type_name = struct_info.data_type
 
-        if struct_type_name not in self.struct_table:
-            raise ValueError(f"Struct type '{struct_type_name}' not found.")
-
+        print(self.struct_table)
         struct_type_info = self.struct_table[struct_type_name]["class_type_info"]
 
         if field_name not in struct_type_info.field_names:
@@ -815,21 +1068,22 @@ class Codegen:
 
 
     def handle_variable_assignment(self, node: ASTNode.VariableAssignment, builder: ir.IRBuilder, **kwargs):
-        # 1. Get variable name and check if it's a struct field access
+        """Handle variable assignment with the new symbol table."""
+        # Get variable name and check if it's a struct field access
         var_name = node.name
         
         # Check if this is a struct field assignment (contains a dot)
         if '.' in var_name:
             struct_name, field_name = var_name.split('.')
             
-            # Ensure the struct variable exists
-            if struct_name not in self.symbol_table:
+            # Look up the struct in the symbol table
+            struct_symbol = self.symbol_table.lookup(struct_name)
+            if not struct_symbol:
                 raise ValueError(f"Struct variable '{struct_name}' not found in symbol table.")
             
-            # Get the struct type information
-            struct_info = self.symbol_table[struct_name]
-            struct_ptr = struct_info["var"]
-            struct_type_name = struct_info["type_name"]
+            # Get struct information
+            struct_ptr = struct_symbol.llvm_value
+            struct_type_name = struct_symbol.data_type
             
             # Ensure the struct type exists in the struct table
             if struct_type_name not in self.struct_table:
@@ -842,18 +1096,11 @@ class Codegen:
             if field_name not in struct_type_info.field_names:
                 raise ValueError(f"Field '{field_name}' not found in struct '{struct_type_name}'.")
             
-            field_index = struct_type_info.field_names.index(field_name)
-            
-            # Create a GEP instruction to get the field pointer
-            # First, get the struct pointer
-            zero = ir.Constant(ir.IntType(32), 0)
-            field_idx = ir.Constant(ir.IntType(32), field_index)
-            field_ptr = builder.gep(struct_ptr, [zero, field_idx], name=f"{struct_name}_{field_name}_ptr")
-            
+            # Get pointer to the field
             field_ptr = self.get_struct_field_ptr(struct_name, field_name, builder)
-
             
             # Get the field type from the struct type
+            field_index = struct_type_info.field_names.index(field_name)
             field_type = struct_type_info.llvm_type.elements[field_index]
             
             # Evaluate right-hand side expression
@@ -866,18 +1113,17 @@ class Codegen:
             # Store the value in the field
             builder.store(value, field_ptr)
         else:
-            # Regular variable assignment (existing code)
-            if var_name not in self.symbol_table:
+            # Regular variable assignment
+            symbol = self.symbol_table.lookup(var_name)
+            if not symbol:
                 raise ValueError(f"Variable '{var_name}' not found in symbol table. It must be declared before assignment.")
             
-            # Retrieve variable pointer and type
-            var_ptr = self.symbol_table[var_name]["var"]
+            # Get variable pointer and type
+            var_ptr = symbol.llvm_value
             var_type = var_ptr.type.pointee
             
             # Evaluate right-hand side expression
             value = self.handle_expression(node.value, builder, var_type)
-            
-            print("value from expression", value)
             
             # Handle type casting if types don't match
             if value.type != var_type:
@@ -1046,6 +1292,7 @@ class Codegen:
             comment_md = builder.module.add_metadata([ir.MetaDataString(builder.module, comment_text)])
             
     def handle_function_call(self, node, builder: ir.IRBuilder, var_type=None, **kwargs):
+        """Handle function call with the new symbol table."""
         # Handle either dedicated FunctionCall nodes or ExpressionNode with FUNCTION_CALL type
         if isinstance(node, ASTNode.FunctionCall):
             func_name = node.name
@@ -1057,17 +1304,21 @@ class Codegen:
             else:
                 raise ValueError("Invalid function call format: function name not found")
             
-            # Get arguments from node.right or node.arguments depending on your AST structure
-            # This might need adjustment based on your specific AST structure
             arguments = node.arguments if hasattr(node, 'arguments') else []
         else:
             raise TypeError("Expected a function call node")
         
-        # Get the function from symbol table
-        func = self.symbol_table.get(func_name)
+        # Look up the function in the symbol table
+        func_symbol = self.symbol_table.lookup(func_name)
+        
+        # For backward compatibility, also check the function map
+        func = None
+        if func_symbol:
+            func = func_symbol.llvm_value
+        elif func_name in self.function_map:
+            func = self.function_map[func_name]
         
         if not func:
-            # If the function isn't found in the symbol table, raise an error
             raise ValueError(f"Function {func_name} not defined")
         
         # Prepare arguments for the function call
@@ -1075,12 +1326,10 @@ class Codegen:
         for arg in arguments:
             # Process each argument as an expression
             llvm_arg = self.handle_expression(arg, builder, None)
-            
-            # Type checking can be done here if you have type information
             llvm_args.append(llvm_arg)
         
         # Make the function call in LLVM IR
-        if hasattr(func, 'return_value') and func.return_value == str(Datatypes.U0):
+        if func.function_type.return_type == ir.VoidType():
             # For void functions
             builder.call(func, llvm_args)
             return None
