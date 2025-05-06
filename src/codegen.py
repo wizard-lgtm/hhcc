@@ -7,6 +7,49 @@ from lexer import *
 if TYPE_CHECKING:
     from compiler import Compiler  # Only for type hints
 
+class Symbol:
+    name: str
+    ast_node: ASTNode
+    datatype: Datatypes
+    llvm_ptr: ir.Value
+    llvm_ptr = Optional[ir.Value] = None 
+    def __init__(self, name: str, ast_node: ASTNode, datatype: Datatypes, llvm_type, llvm_ptr:ir.Value=None):
+        self.name = name
+        self.ast_node = ast_node
+        self.datatype = datatype  # e.g., 'MyStruct'
+        self.llvm_ptr = llvm_ptr  # Will be set later during codegen
+        self.llvm_type = llvm_type
+
+
+class SymbolTable:
+    def __init__(self):
+        self.table = {}
+
+    def register(self, name, ast_node):
+        if name in self.table:
+            raise Exception(f"Symbol '{name}' already defined")
+        self.table[name] = Symbol(name, ast_node)
+
+    def has(self, name):
+        return name in self.table
+
+    def get(self, name):
+        if name not in self.table:
+            raise Exception(f"Symbol '{name}' not found")
+        return self.table[name]
+
+    def set_llvm_ptr(self, name, ptr):
+        if name not in self.table:
+            raise Exception(f"Symbol '{name}' not found")
+        self.table[name].llvm_ptr = ptr
+
+    def get_llvm_ptr(self, name):
+        if name not in self.table:
+            raise Exception(f"Symbol '{name}' not found")
+        symbol = self.table[name]
+        if symbol.llvm_ptr is None:
+            raise Exception(f"LLVM pointer not yet assigned for '{name}'")
+        return symbol.llvm_ptr                                      
 
 class Codegen:
     def __init__(self, compiler: "Compiler"):
@@ -44,10 +87,6 @@ class Codegen:
             ASTNode.Union: self.handle_union,
             ASTNode.Break: self.handle_break,
             ASTNode.Continue: self.handle_continue,
-            ASTNode.ArrayDeclaration: self.handle_array_declaration,
-            ASTNode.ArrayInitialization: self.handle_array_initialization,
-            ASTNode.Pointer: self.handle_pointer,
-            ASTNode.Reference: self.handle_reference
         }
 
         # Define correct LLVM types with appropriate signedness
@@ -554,6 +593,12 @@ class Codegen:
             return builder.or_(left_bool, right_bool, name="lor")
         else:
             raise ValueError(f"Unsupported binary operator: {operator}")
+        
+    def get_variable_pointer(self, name):
+        if name not in self.symbol_table:
+            raise Exception(f"Undefined variable: {name}")
+        
+        return self.symbol_table[name]
 
     def get_variable_value(name: str):
         # Find variable and get it's value
@@ -600,9 +645,18 @@ class Codegen:
             case NodeType.LITERAL:
                 return self._expression_handle_literal(node, builder, var_type)
 
+            case NodeType.REFERENCE:
+                return self.handle_pointer(node, builder)
+
             case _:
                 raise ValueError(f"Unsupported expression node type: {node.node_type}")
 
+
+    def handle_pointer(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, **kwargs):
+        var_ptr = self.get_variable_pointer(node.left.value)
+        print(var_ptr)
+        raise ValueError("Handle Pointer function not implemented")
+        pass
 
     def _expression_handle_literal(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type):
         # Handle variable reference if it's in the symbol table
@@ -1062,14 +1116,6 @@ class Codegen:
                     return f"<ClassTypeInfo: fields={self.field_names}, parent={self.parent}, llvm_type={self.llvm_type}>"
 
     def handle_class(self, node: ASTNode.Class, **kwargs):
-        """
-        Handles the definition of a class in the source code and generates
-        the corresponding identified LLVM struct type.
-
-        Args:
-            node: The AST node representing the class definition.
-            **kwargs: Additional keyword arguments (not used in this snippet).
-        """
         # Get the parent class info if any
         parent_type_info = None
         if node.parent:
@@ -1150,88 +1196,3 @@ class Codegen:
 
     def handle_continue(self, node, **kwargs):
         pass
-
-    def handle_array_declaration(self, node, **kwargs):
-        pass
-
-    def handle_array_initialization(self, node, **kwargs):
-        pass
-
-
-    def handle_pointer(self, node, builder, **kwargs):
-        """
-        Handle pointer operations (&) to get the address of a variable.
-        
-        Args:
-            node: The AST node representing the pointer operation
-            builder: The LLVM IR builder
-            **kwargs: Additional keyword arguments
-            
-        Returns:
-            The pointer value as an LLVM IR value
-        """
-        # The child node should be the variable we're getting the address of
-        child_node = node.left [0] if node.left else None
-        if not child_node:
-            raise ValueError("Invalid pointer operation: missing target operand")
-        
-        # Get the variable reference
-        if child_node.node_type == NodeType.REFERENCE:
-            # Get the variable name
-            var_name = child_node.value
-            
-            # Look up the variable in the symbol table
-            if var_name not in self.symbol_table:
-                raise ValueError(f"Cannot take address of undefined variable: {var_name}")
-            
-            var_alloca = self.symbol_table[var_name]['alloca']
-            return var_alloca  # The alloca instruction itself is the pointer
-        elif child_node.node_type == NodeType.STRUCT_ACCESS:
-            # Handle getting address of a struct field
-            struct_ptr = self.handle_struct_access(child_node, builder, get_pointer=True)
-            return struct_ptr
-        else:
-            raise ValueError(f"Cannot take address of {child_node.node_type}")
-
-    def handle_reference(self, node, builder, **kwargs):
-        """
-        Handle variable references (dereferencing pointers with *).
-        
-        Args:
-            node: The AST node representing the reference operation
-            builder: The LLVM IR builder
-            **kwargs: Additional keyword arguments
-            
-        Returns:
-            The dereferenced value as an LLVM IR value
-        """
-        # Check if this is a dereference operation (*)
-        if node.value == '*':
-            # The child node should be the pointer we're dereferencing
-            child_node = node.children[0] if node.children else None
-            if not child_node:
-                raise ValueError("Invalid dereference operation: missing pointer operand")
-            
-            # Get the pointer value
-            ptr_value = self.handle_expression(child_node, builder, None)
-            
-            # Determine the pointee type
-            ptr_type = ptr_value.type
-            if not isinstance(ptr_type, ir.PointerType):
-                raise ValueError("Cannot dereference a non-pointer value")
-            
-            # Load the value from the pointer
-            return builder.load(ptr_value, name="deref")
-        
-        # If it's a normal variable reference (not a dereference)
-        var_name = node.value
-        
-        # Look up the variable in the symbol table
-        if var_name not in self.symbol_table:
-            raise ValueError(f"Reference to undefined variable: {var_name}")
-        
-        var_info = self.symbol_table[var_name]
-        var_alloca = var_info['alloca']
-        
-        # Load the value from the alloca
-        return builder.load(var_alloca, name=f"{var_name}_value")
