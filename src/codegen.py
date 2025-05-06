@@ -895,7 +895,7 @@ class Codegen:
     def _expression_handle_literal(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type):
         # Handle variable reference if it's in the symbol table
         if node.value in self.symbol_table:
-            var_ptr = self.symbol_table[node.value].get("var")
+            var_ptr = self.symbol_table.lookup(node.value).llvm_value
             return builder.load(var_ptr, name=f"load_{node.value}")
 
         try:
@@ -940,40 +940,85 @@ class Codegen:
         return ir.Constant(var_type, val)
 
     def handle_struct_access(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder):
-        # For example 't.a' where 't' is the struct variable and 'a' is the field
-        print(node)
-        struct_name = node.left.value       # 't'
-        field_name = node.right.value       # 'a'
+        """
+        Handle struct access operations, including nested access chains like a.b.c
+        This implementation flattens the nested access into a sequence of single accesses
+        """
+        # Flatten the chain of struct accesses
+        access_chain = self._flatten_struct_access(node)
+        print(f"Access chain: {access_chain}")
+        
+        # Start with the base struct
+        base_name = access_chain[0]
+        base_info = self.symbol_table.lookup(base_name)
+        if not base_info:
+            raise ValueError(f"Unknown struct variable: {base_name}")
+        
+        current_ptr = base_info.llvm_value
+        current_type = base_info.data_type
+        print(f"Starting with base: {base_name} of type {current_type}")
+        
+        # Process each field access in the chain (except the first which is the base)
+        result_ptr = current_ptr  # Store the final result
+        
+        for i, field_name in enumerate(access_chain[1:]):
+            print(f"Accessing field: {field_name} in type: {current_type}")
+            
+            # Check if current type is a valid struct
+            class_info = self.struct_table.get(current_type)
+            if not class_info:
+                raise ValueError(f"Unknown struct type: {current_type}")
+            
+            class_type = class_info.get("class_type_info")
+            if not class_type or field_name not in class_type.field_names:
+                raise ValueError(f"Field '{field_name}' not found in struct '{current_type}'.")
+            
+            field_index = class_type.field_names.index(field_name)
+            print(f"Field index: {field_index}")
+            
+            # Get the field pointer
+            if i == 0:  # First field access (base.field)
+                field_ptr = self.get_struct_field_ptr(base_name, field_name, builder)
+            else:
+                # For nested accesses, use GEP on the current_ptr
+                field_ptr = builder.gep(current_ptr, [ir.Constant(ir.IntType(32), 0), 
+                                                    ir.Constant(ir.IntType(32), field_index)],
+                                    name=f"field_{field_name}_ptr")
+            
+            # Load the field value
+            current_ptr = builder.load(field_ptr, name=f"access_{field_name}")
+            result_ptr = current_ptr  # Update the result pointer
+            
+            # Update current type to the field's type for next iteration
+            if field_name == 'next' and current_type == 'Node':
+                # Special case for linked list - 'next' points to another Node
+                current_type = 'Node'
+            else:
+                # For other cases, you'd need a more general mechanism to determine field types
+                # This would rely on having field type information in your struct definitions
+                print(f"Need to determine type of field {field_name} in {current_type}")
+                # Default fallback - if we're at the end of the chain, we don't need the next type
+                if i == len(access_chain[1:]) - 1:
+                    break
+                else:
+                    # For intermediate accesses, must determine next type or error
+                    raise ValueError(f"Cannot determine type of field {field_name} in {current_type}")
+        
+        return result_ptr
 
-        # Lookup struct variable
-        print(f"STURCT NAME IS {struct_name}")
-        struct_info = self.symbol_table.lookup(struct_name)
-        if not struct_info:
-            raise ValueError(f"Unknown struct variable: {struct_name}")
-
-        struct_ptr = struct_info.llvm_value
-        struct_type_name = struct_info.data_type
-
-        if struct_ptr is None or struct_type_name is None:
-            raise ValueError(f"Invalid struct entry for '{struct_name}'.")
-
-        # Get field index and type info
-        class_info = self.struct_table.get(struct_type_name)
-        if not class_info:
-            raise ValueError(f"Unknown struct type: {struct_type_name}")
-
-        class_type = class_info.get("class_type_info")
-        if not class_type or field_name not in class_type.field_names:
-            raise ValueError(f"Field '{field_name}' not found in struct '{struct_type_name}'.")
-
-        field_index = class_type.field_names.index(field_name)
-
-        field_ptr = self.get_struct_field_ptr(struct_name, field_name, builder)
-
-        # Load field value
-        dxx = builder.load(field_ptr, name=f"{struct_name}_{field_name}")
-        print(dxx)
-        return dxx
+    def _flatten_struct_access(self, node):
+        """
+        Convert a nested struct access tree into a flat list of field names
+        For example, a.b.c becomes ['a', 'b', 'c']
+        """
+        if node.node_type != NodeType.STRUCT_ACCESS:
+            # If it's just a variable reference
+            return [node.value]
+        
+        # If it's a struct access node
+        left_parts = self._flatten_struct_access(node.left)
+        right_part = node.right.value
+        return left_parts + [right_part]
 
     def handle_block(self, node: ASTNode.Block, builder: ir.IRBuilder, **kwargs):
         """Handle a block of statements with proper scope management."""
