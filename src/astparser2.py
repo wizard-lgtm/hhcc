@@ -837,6 +837,7 @@ class ASTParser:
 
 
     def parse_statement(self, inside_block: bool = False) -> ASTNode:
+        
         current_token = self.current_token()
         if not current_token:
             return None
@@ -887,8 +888,28 @@ class ASTParser:
         if current_token._type == TokenType.COMMENT:
             return self.comment()
 
+      
+        elif self.current_token()._type == TokenType.LITERAL and self.peek_token(1).value == operators["increment"]:
+            return self.variable_increment()
+        elif self.current_token()._type == TokenType.LITERAL and self.peek_token(1).value == operators["decrement"]:
+            return self.variable_decrement()
+        
         self.syntax_error("Unexpected statement", current_token)
     
+    def variable_increment(self):
+        node =  ASTNode.VariableIncrement(self.current_token().value)
+        self.next_token()  # Consume the variable name
+        self.next_token()  # Consume the variable name
+        self.check_semicolon()
+        return node
+
+    def variable_decrement(self):
+        node =  ASTNode.VariableDecrement(self.current_token().value)
+        self.next_token()  # Consume the variable name
+        self.next_token()  # Consume the variable name
+        self.check_semicolon()
+        return node
+
     def struct_field_assignment(self):
         # Start with the struct name (already consumed in parse_statement)
         struct_name = self.current_token().value

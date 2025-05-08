@@ -98,9 +98,6 @@ class ASTNode:
 
             return result
 
-        def __repr__(self) -> str:
-            return self.print_tree()
-
     class Block:
         def __init__(self, nodes: List[Any]):
             self.nodes: List[Any] = nodes
@@ -451,13 +448,43 @@ class ASTNode:
             
         def __repr__(self) -> str:
             return self.print_tree()
-        
-    class StructFieldAssignment():
+            
+    class StructFieldAssignment:
         def __init__(self, struct_name, field_name, value):
-            super().__init__(NodeType.STRUCT_FIELD_ASSIGNMENT)
             self.struct_name = struct_name
             self.field_name = field_name
             self.value = value
-        
-        def __str__(self):
-            return f"{self.struct_name}.{self.field_name} = {self.value}"
+
+        def print_tree(self, prefix: str = "") -> str:
+            result = f"{prefix}StructFieldAssignment\n"
+            result += f"{prefix}├── struct_name: {self.struct_name}\n"
+            result += f"{prefix}├── field_name: {self.field_name}\n"
+            if hasattr(self.value, 'print_tree'):
+                result += f"{prefix}└── value:\n"
+                result += self.value.print_tree(prefix + "    ")
+            else:
+                result += f"{prefix}└── value: {self.value}\n"
+            return result
+
+        def __repr__(self) -> str:
+            return self.print_tree()
+
+    class VariableIncrement:
+        def __init__(self, name: str):
+            self.name: str = name
+
+        def print_tree(self, prefix: str = "") -> str:
+            return f"{prefix}VariableIncrement\n{prefix}└── name: {self.name}\n"
+
+        def __repr__(self) -> str:
+            return self.print_tree()
+
+    class VariableDecrement:
+        def __init__(self, name: str):
+            self.name: str = name
+
+        def print_tree(self, prefix: str = "") -> str:
+            return f"{prefix}VariableDecrement\n{prefix}└── name: {self.name}\n"
+
+        def __repr__(self) -> str:
+            return self.print_tree()
