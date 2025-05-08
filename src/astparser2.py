@@ -842,6 +842,10 @@ class ASTParser:
         if not current_token:
             return None
 
+        # Handle extern declarations
+        if current_token._type == TokenType.KEYWORD and current_token.value == keywords["EXTERN"]:
+            return self.parse_extern_declaration()
+
         if current_token._type == TokenType.KEYWORD:
             next_token = self.peek_token()
         
@@ -888,20 +892,78 @@ class ASTParser:
         if current_token._type == TokenType.COMMENT:
             return self.comment()
 
-      
+    
         elif self.current_token()._type == TokenType.LITERAL and self.peek_token(1).value == operators["increment"]:
             return self.variable_increment()
         elif self.current_token()._type == TokenType.LITERAL and self.peek_token(1).value == operators["decrement"]:
             return self.variable_decrement()
         
         self.syntax_error("Unexpected statement", current_token)
-    
-    def variable_increment(self):
-        node =  ASTNode.VariableIncrement(self.current_token().value)
-        self.next_token()  # Consume the variable name
-        self.next_token()  # Consume the variable name
-        self.check_semicolon()
-        return node
+        
+                
+    def parse_extern_declaration(self) -> ASTNode:
+        """
+        Parse extern declarations for variables, functions, and struct forward declarations.
+        Returns an Extern node that wraps the actual declaration.
+        """
+        self.next_token()  # Consume 'extern'
+        current_token = self.current_token()
+
+        # Handle struct forward declaration
+        if current_token._type == TokenType.KEYWORD and current_token.value == keywords["CLASS"]:
+            self.next_token()  # Consume 'struct'
+            struct_name_token = self.current_token()
+            if struct_name_token._type != TokenType.LITERAL:
+                self.syntax_error("Expected struct name", struct_name_token)
+            struct_name = struct_name_token.value
+            self.next_token()  # Consume struct name
+
+            semicolon = self.current_token()
+            if semicolon._type != TokenType.SEPARATOR or semicolon.value != separators["SEMICOLON"]:
+                self.syntax_error("Expected ';' after struct declaration", semicolon)
+            self.next_token()  # Consume ';'
+
+            struct_decl = ASTNode.Class(struct_name, [], None)
+            return ASTNode.Extern(struct_decl)
+
+        # Handle variable or function declaration
+        if current_token._type == TokenType.KEYWORD and current_token.value in Datatypes.all_types():
+            var_type = current_token.value
+            self.next_token()  # Consume type
+
+            # Handle pointer type (e.g., int*)
+            if self.current_token()._type == TokenType.OPERATOR and self.current_token().value == operators["MULTIPLY"]:
+                var_type += "*"
+                self.next_token()  # Consume '*'
+
+            name_token = self.current_token()
+            if name_token._type != TokenType.LITERAL:
+                self.syntax_error("Expected identifier name", name_token)
+            name = name_token.value
+            self.next_token()  # Consume identifier
+
+            # Check if it's a function declaration
+            if self.current_token()._type == TokenType.SEPARATOR and self.current_token().value == separators["LPAREN"]:
+                parameters = self.parse_parameters()
+
+                if self.current_token()._type != TokenType.SEPARATOR or self.current_token().value != separators["SEMICOLON"]:
+                    self.syntax_error("Expected ';' after extern function declaration", self.current_token())
+                self.next_token()  # Consume ';'
+
+                func_decl = ASTNode.FunctionDefinition(name, var_type, None, parameters)
+                return ASTNode.Extern(func_decl)
+
+            # Otherwise, it's a variable declaration
+            if self.current_token()._type != TokenType.SEPARATOR or self.current_token().value != separators["SEMICOLON"]:
+                self.syntax_error("Expected ';' after extern variable declaration", self.current_token())
+            self.next_token()  # Consume ';'
+
+            var_decl = ASTNode.VariableDeclaration(var_type, name)
+            return ASTNode.Extern(var_decl)
+
+        self.syntax_error("Expected type or 'struct' after 'extern'", self.current_token())
+
+        
 
     def variable_decrement(self):
         node =  ASTNode.VariableDecrement(self.current_token().value)
