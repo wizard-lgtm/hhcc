@@ -31,6 +31,7 @@ class NodeType(Enum):
     UNION = auto()
     ARRAY_DECLARATION = auto()
     ARRAY_INITIALIZATION = auto()
+    EXTERN = auto()
 
 class ASTNodeType(Enum):
     # Expression nodes
@@ -485,6 +486,43 @@ class ASTNode:
 
         def print_tree(self, prefix: str = "") -> str:
             return f"{prefix}VariableDecrement\n{prefix}└── name: {self.name}\n"
+
+        def __repr__(self) -> str:
+            return self.print_tree()
+
+
+
+ 
+        
+    class Extern:
+        class ExternType(Enum):
+            FUNCTION = auto()
+            VARIABLE = auto()
+            STRUCT = auto()
+            UNKNOWN = auto()   
+        def __init__(self, declaration: Any):
+            """
+            Initialize an extern declaration that can wrap any declaration type
+            
+            Args:
+                declaration: The declaration being marked as extern (function, variable, etc.)
+            """
+            self.declaration = declaration
+            
+            # Determine and store the type of the declaration
+            if isinstance(declaration, ASTNode.FunctionDefinition):
+                self.extern_type = self.ExternType.FUNCTION
+            elif isinstance(declaration, ASTNode.VariableDeclaration):
+                self.extern_type = self.ExternType.VARIABLE
+            elif isinstance(declaration, ASTNode.Class):
+                self.extern_type = self.ExternType.STRUCT
+            else:
+                self.extern_type = self.ExternType.UNKNOWN
+
+        def print_tree(self, prefix: str = "") -> str:
+            result = f"{prefix}Extern ({self.extern_type.name.lower()})\n"
+            result += f"{prefix}└── declaration: {self.declaration.print_tree(prefix + '    ')}"
+            return result
 
         def __repr__(self) -> str:
             return self.print_tree()
