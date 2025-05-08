@@ -910,7 +910,7 @@ class Codegen:
                     return ir.Constant(var_type, 0)
 
             # Handle NULL (zero) pointer
-            if isinstance(var_type, ir.PointerType) and node.value == "0":
+            if isinstance(var_type, ir.PointerType) and node.value == "0" or node.value == "NULL":
                 int32 = ir.IntType(32)
                 int32_ptr = int32.as_pointer()
                 null_ptr = ir.Constant(int32_ptr, None)
