@@ -4,6 +4,10 @@ class Node{
     U8 value;
 };
 
+U8 pub_func2(U8 a){
+
+}
+
 U8 main(){
     Node n1;
     Node n2;
