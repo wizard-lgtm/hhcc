@@ -116,6 +116,7 @@ class Datatypes:
         self.type_info = {
         Datatypes.BOOL: {"type": ir.IntType(1), "signed": False},
         Datatypes.U8: {"type": ir.IntType(8), "signed": False},
+        Datatypes.I8: {"type": ir.IntType(8), "signed": True},
         Datatypes.U16: {"type": ir.IntType(16), "signed": False},
         Datatypes.U32: {"type": ir.IntType(32), "signed": False},
         Datatypes.U64: {"type": ir.IntType(64), "signed": False},
@@ -132,7 +133,7 @@ class Datatypes:
     def all_types(cls):
         return [
             cls.F64, cls.U64, cls.I64, cls.U32, cls.I32,
-            cls.U16, cls.I16, cls.U8, cls.BOOL, cls.U0
+            cls.U16, cls.I16, cls.U8, cls.I8, cls.BOOL, cls.U0
         ] + list(cls.user_defined_types.keys())
 
     @classmethod
@@ -170,7 +171,7 @@ class Datatypes:
         """Determine if a type is signed."""
         if not type_name:
             return False  # Default to unsigned if type_name is None or empty
-        if type_name.endswith('*'):
+        if isinstance(type_name, str) and type_name.endswith('*'):
             return False  # Pointers are never signed
         return type_name.startswith("I") or type_name.startswith("F")
 
@@ -246,6 +247,7 @@ keywords = {
     "U16": "U16",        # Unsigned 16bit Integer type. 2bytes wide.
     "I16": "I16",        # Signed 16bit Integer type. 2bytes wide.
     "U8": "U8",          # Unsigned 8bit Integer type. 1byte wide.
+    "I8": "I8",          # Signed 8bit Integer type. 1byte wide.
     "BOOL": "Bool",      # Signed 8bit Integer type. 1byte wide. This should either be 1 or 0.
     "U0": "U0",          # void type. Has no size.
     "IF": "if",

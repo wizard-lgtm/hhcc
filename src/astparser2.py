@@ -848,7 +848,7 @@ class ASTParser:
 
         if current_token._type == TokenType.KEYWORD:
             next_token = self.peek_token()
-        
+            print(Datatypes.all_types()) 
             if current_token.value in Datatypes.all_types():
                 if next_token._type == TokenType.LITERAL and self.peek_token(2).value == separators["LPAREN"]:
                     return self.function_declaration()
