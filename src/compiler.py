@@ -31,7 +31,7 @@ class Compiler:
     def __init__(self, file, debug=False, dump_ast=False, dump_tokens=False, dump_defines=False, 
                  dump_preprocessed=False, dump_llvmir=False, triple=None, target=None, output_file=None,
                  emit_llvm=False, compile_only=False, link_libs=None, lib_paths=None, object_files=None):
-        self.version = "0.0.5"  # Updated version number
+        self.version = "0.0.9"  
         self.file = os.path.abspath(file)
         self.file_directory = os.path.dirname(self.file)
         self.working_directory = os.getcwd()
@@ -165,7 +165,7 @@ def __init__(self, file, debug=False, dump_ast=False, dump_tokens=False, dump_de
              dump_preprocessed=False, dump_llvmir=False, triple=None, target=None, output_file=None,
              emit_llvm=False, compile_only=False, link_libs=None, lib_paths=None, object_files=None,
              link_with_clang=False):
-    self.version = "0.0.5"  # Updated version number
+    self.version = "0.0.9"  # Updated version number
     self.file = os.path.abspath(file)
     self.file_directory = os.path.dirname(self.file)
     self.working_directory = os.getcwd()
@@ -331,6 +331,10 @@ def parse_args():
     parser.add_argument("--use-clang", action="store_true", help="Use clang for linking (if available)")
 
     return parser.parse_args()
+
+def debug_print(self, message:str):
+    if self.debug:
+        print(f"DEBUG: {message}")
 
 # Update the main function to include the new parameters
 if __name__ == "__main__":

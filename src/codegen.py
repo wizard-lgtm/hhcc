@@ -887,12 +887,9 @@ class Codegen:
 
 
     def handle_pointer(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, **kwargs):
-        print(node.left.value)
         var_ptr = self.get_variable_pointer(node.left.value)
-        
-        print(var_ptr)
-
         return var_ptr
+
 
     
     def _expression_handle_literal(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type):
@@ -943,13 +940,15 @@ class Codegen:
         return ir.Constant(var_type, val)
 
     def handle_struct_access(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder):
+        debug = self.compiler.debug
         """
         Handle struct access operations, including nested access chains like a.b.c
         This implementation flattens the nested access into a sequence of single accesses
         """
         # Flatten the chain of struct accesses
         access_chain = self._flatten_struct_access(node)
-        print(f"Access chain: {access_chain}")
+        if debug:
+            print(f"Access chain: {access_chain}")
         
         # Start with the base struct
         base_name = access_chain[0]
@@ -959,13 +958,15 @@ class Codegen:
         
         current_ptr = base_info.llvm_value
         current_type = base_info.data_type
-        print(f"Starting with base: {base_name} of type {current_type}")
+        if debug:
+            print(f"Starting with base: {base_name} of type {current_type}")
         
         # Process each field access in the chain (except the first which is the base)
         result_ptr = current_ptr  # Store the final result
         
         for i, field_name in enumerate(access_chain[1:]):
-            print(f"Accessing field: {field_name} in type: {current_type}")
+            if debug:
+                print(f"Accessing field: {field_name} in type: {current_type}")
             
             # Check if current type is a valid struct
             class_info = self.struct_table.get(current_type)
@@ -977,7 +978,9 @@ class Codegen:
                 raise ValueError(f"Field '{field_name}' not found in struct '{current_type}'.")
             
             field_index = class_type.field_names.index(field_name)
-            print(f"Field index: {field_index}")
+            if debug:
+                print(f"Field index: {field_index}")
+
             
             # Get the field pointer
             if i == 0:  # First field access (base.field)
@@ -999,7 +1002,8 @@ class Codegen:
             else:
                 # For other cases, you'd need a more general mechanism to determine field types
                 # This would rely on having field type information in your struct definitions
-                print(f"Need to determine type of field {field_name} in {current_type}")
+                if debug:
+                    print(f"Need to determine type of field {field_name} in {current_type}")
                 # Default fallback - if we're at the end of the chain, we don't need the next type
                 if i == len(access_chain[1:]) - 1:
                     break
