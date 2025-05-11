@@ -893,6 +893,13 @@ class Codegen:
 
     
     def _expression_handle_literal(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type):
+        if var_type is None:
+            if node.value.isdigit():
+                var_type = ir.IntType(32)  # default to i32
+            elif node.value.lower() in ['true', 'false']:
+                var_type = ir.IntType(1)
+            elif '.' in node.value:
+                var_type = ir.DoubleType()  # or FloatType
         # Handle variable reference if it's in the symbol table
         if node.value in self.symbol_table:
             var_ptr = self.symbol_table.lookup(node.value).llvm_value
@@ -1345,18 +1352,46 @@ class Codegen:
             
     def handle_function_call(self, node, builder: ir.IRBuilder, var_type=None, **kwargs):
         """Handle function call with the new symbol table."""
+        # Debug the AST node structure to help understand its format
+
+        
         # Handle either dedicated FunctionCall nodes or ExpressionNode with FUNCTION_CALL type
         if isinstance(node, ASTNode.FunctionCall):
             func_name = node.name
             arguments = node.arguments
         elif node.node_type == NodeType.FUNCTION_CALL:
-            # Extract function name from the left part of the expression
-            if node.left and node.left.node_type == NodeType.LITERAL:
-                func_name = node.left.value
+            # Extract function name
+            if hasattr(node, 'name'):
+                func_name = node.name
+            elif hasattr(node, 'value') and node.value:
+                # Sometimes the function name is stored in value
+                func_name = node.value
+            elif hasattr(node, 'left') and node.left:
+                if hasattr(node.left, 'value'):
+                    func_name = node.left.value
+                elif hasattr(node.left, 'name'):
+                    func_name = node.left.name
+                else:
+                    raise ValueError("Invalid function call format: function name not found")
             else:
                 raise ValueError("Invalid function call format: function name not found")
             
-            arguments = node.arguments if hasattr(node, 'arguments') else []
+            # Extract arguments - handle the various ways they might be stored
+            arguments = []
+            
+            # Check if arguments are stored directly as a property
+            if hasattr(node, 'arguments') and node.arguments is not None:
+                arguments = node.arguments
+            # Check if arguments are stored in a right property
+            elif hasattr(node, 'right') and node.right is not None:
+                if isinstance(node.right, list):
+                    arguments = node.right
+                else:
+                    # If right is a single node but represents multiple arguments
+                    if hasattr(node.right, 'arguments') and node.right.arguments is not None:
+                        arguments = node.right.arguments
+                    else:
+                        arguments = [node.right]
         else:
             raise TypeError("Expected a function call node")
         
@@ -1373,12 +1408,37 @@ class Codegen:
         if not func:
             raise ValueError(f"Function {func_name} not defined")
         
+        # Get the expected argument types from the function type
+        expected_arg_types = func.function_type.args
+        
+        # Check if the number of arguments matches
+        if len(arguments) != len(expected_arg_types):
+            raise ValueError(f"Function {func_name} expects {len(expected_arg_types)} arguments, but {len(arguments)} were provided")
+        
         # Prepare arguments for the function call
         llvm_args = []
-        for arg in arguments:
+        for i, arg in enumerate(arguments):
             # Process each argument as an expression
             llvm_arg = self.handle_expression(arg, builder, None)
+            
+            # Make sure the argument types match - cast if necessary
+            expected_type = expected_arg_types[i]
+            if llvm_arg.type != expected_type:
+                # Cast the argument to the expected type
+                if isinstance(expected_type, ir.IntType) and isinstance(llvm_arg.type, ir.IntType):
+                    # For integer types, perform bit casting if needed
+                    if expected_type.width > llvm_arg.type.width:
+                        llvm_arg = builder.zext(llvm_arg, expected_type)
+                    elif expected_type.width < llvm_arg.type.width:
+                        llvm_arg = builder.trunc(llvm_arg, expected_type)
+                # Add more type casting as needed
+            
             llvm_args.append(llvm_arg)
+        
+        # Before calling, let's log what we're about to do for debugging
+        print(f"Calling function {func_name} with {len(llvm_args)} arguments")
+        for i, arg in enumerate(llvm_args):
+            print(f"  Argument {i}: {arg}, Type: {arg.type}")
         
         # Make the function call in LLVM IR
         if func.function_type.return_type == ir.VoidType():
