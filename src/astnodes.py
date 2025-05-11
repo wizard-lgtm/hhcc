@@ -92,11 +92,6 @@ class ASTNode:
                 result += f": {self.value}"
             result += ")\n"
 
-            if self.left:
-                result += f"{prefix}├── left: {self.left.print_tree(prefix + '│   ')}"
-            if self.right:
-                result += f"{prefix}└── right: {self.right.print_tree(prefix + '    ')}"
-
             return result
 
     class Block:
