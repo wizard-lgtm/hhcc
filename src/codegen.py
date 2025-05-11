@@ -869,6 +869,9 @@ class Codegen:
             case NodeType.REFERENCE:
                 return self.handle_pointer(node, builder)
 
+            case NodeType.UNARY_OP:
+                return self.handle_unary_op(node, builder, var_type)
+
             case NodeType.FUNCTION_CALL:
                 return self.handle_function_call(node, builder, **kwargs)
 
@@ -884,6 +887,69 @@ class Codegen:
             case _:
                 raise ValueError(f"Unsupported expression node type: {node.node_type}")
 
+    def handle_unary_op(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
+        """
+        Handle unary operations like negation (-), bitwise not (~), logical not (!), etc.
+        
+        Args:
+            node: The unary operation node
+            builder: The LLVM IR builder
+            var_type: The expected type of the expression
+            
+        Returns:
+            The LLVM value representing the result of the unary operation
+        """
+        # Process the operand first
+        operand = self.handle_expression(node.left, builder, var_type)
+        
+        match node.op:
+            case '-':  # Numeric negation
+                if isinstance(var_type, ir.FloatType):
+                    return builder.fneg(operand, name="neg")
+                else:
+                    # For integers, we can use 0 - value
+                    zero = ir.Constant(operand.type, 0)
+                    return builder.sub(zero, operand, name="neg")
+            
+            case '~':  # Bitwise NOT
+                # Only applicable to integer types
+                if isinstance(var_type, (ir.IntType)):
+                    return builder.not_(operand, name="bitnot")
+                else:
+                    raise ValueError(f"Bitwise NOT (~) cannot be applied to type {var_type}")
+            
+            case '!':  # Logical NOT
+                # Convert to boolean (0 or 1) first if not already
+                if operand.type != ir.IntType(1):
+                    # For integers, compare with 0
+                    if isinstance(operand.type, ir.IntType):
+                        zero = ir.Constant(operand.type, 0)
+                        bool_val = builder.icmp_ne(operand, zero, name="to_bool")
+                    # For floats, compare with 0.0
+                    elif isinstance(operand.type, ir.FloatType):
+                        zero = ir.Constant(operand.type, 0.0)
+                        bool_val = builder.fcmp_one(operand, zero, name="to_bool")
+                    else:
+                        raise ValueError(f"Cannot convert type {operand.type} to boolean")
+                else:
+                    bool_val = operand
+                    
+                # Invert the boolean value
+                return builder.not_(bool_val, name="lognot")
+                
+            case '*':  # Dereference pointer
+                # Check if operand is a pointer type
+                if not isinstance(operand.type, ir.PointerType):
+                    raise ValueError(f"Cannot dereference non-pointer type {operand.type}")
+                return builder.load(operand, name="deref")
+                
+            case '&':  # Reference/Address-of
+                # This should be handled elsewhere since we likely need the variable name
+                # and not just the expression result
+                raise ValueError("Address-of operator (&) should be handled by handle_pointer method")
+                
+            case _:
+                raise ValueError(f"Unsupported unary operator: {node.operator}")
 
 
     def handle_pointer(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, **kwargs):
@@ -893,47 +959,109 @@ class Codegen:
 
     
     def _expression_handle_literal(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type):
-        if var_type is None:
-            if node.value.isdigit():
-                var_type = ir.IntType(32)  # default to i32
-            elif node.value.lower() in ['true', 'false']:
-                var_type = ir.IntType(1)
-            elif '.' in node.value:
-                var_type = ir.DoubleType()  # or FloatType
+        """
+        Handle literal expressions like numbers, booleans, strings, etc.
+        
+        Args:
+            node: The AST node containing the literal value
+            builder: The LLVM IR builder
+            var_type: The target type for the literal
+            
+        Returns:
+            LLVM value representing the literal with appropriate type
+        """
+        # Print debug info
+        debug = getattr(self, 'debug', False)
+        if debug:
+            print(f"Handling literal: '{node.value}', target type: {var_type}")
+        
+        # If the value is not a string attribute but some other type of node
+        # Handle special node types that might be misidentified as literals
+        if not hasattr(node, 'value'):
+            if debug:
+                print(f"Node doesn't have a 'value' attribute: {node}")
+            if hasattr(node, 'node_type') and node.node_type == NodeType.STRUCT_ACCESS:
+                return self.handle_struct_access(node, builder)
+            else:
+                raise ValueError(f"Invalid literal node: {node}")
+        
         # Handle variable reference if it's in the symbol table
-        if node.value in self.symbol_table:
-            var_ptr = self.symbol_table.lookup(node.value).llvm_value
-            return builder.load(var_ptr, name=f"load_{node.value}")
+        if isinstance(node.value, str) and node.value in self.symbol_table:
+            var_info = self.symbol_table.lookup(node.value)
+            if var_info:
+                return builder.load(var_info.llvm_value, name=f"load_{node.value}")
+        
+        # Infer type if not specified
+        if var_type is None:
+            if isinstance(node.value, str):
+                if node.value.isdigit():
+                    var_type = ir.IntType(32)  # default to i32
+                elif node.value.lower() in ['true', 'false']:
+                    var_type = ir.IntType(1)
+                elif '.' in node.value and all(c.isdigit() or c == '.' or c == '-' or c == '+' or c.lower() == 'e' 
+                                            for c in node.value):
+                    var_type = ir.DoubleType()  # or FloatType
+                else:
+                    # Could be a variable name or other identifier
+                    raise ValueError(f"Cannot infer type for literal value: '{node.value}'")
+            else:
+                # If not a string, what is it?
+                raise ValueError(f"Unsupported literal type: {type(node.value)}")
 
         try:
             # Boolean literals (true/false)
             if isinstance(var_type, ir.IntType) and var_type.width == 1:
-                if node.value.lower() == 'true':
+                if isinstance(node.value, str) and node.value.lower() == 'true':
                     return ir.Constant(var_type, 1)
-                elif node.value.lower() == 'false':
+                elif isinstance(node.value, str) and node.value.lower() == 'false':
                     return ir.Constant(var_type, 0)
+                elif isinstance(node.value, (int, float)):
+                    # Convert numeric value to boolean (0 = false, non-zero = true)
+                    return ir.Constant(var_type, 1 if node.value != 0 else 0)
 
             # Handle NULL (zero) pointer
-            if isinstance(var_type, ir.PointerType) and node.value == "0" or node.value == "NULL":
-                int32 = ir.IntType(32)
-                int32_ptr = int32.as_pointer()
-                null_ptr = ir.Constant(int32_ptr, None)
-                
-                return null_ptr
+            if isinstance(var_type, ir.PointerType) and (
+                (isinstance(node.value, str) and (node.value == "0" or node.value.upper() == "NULL")) or
+                (isinstance(node.value, (int, float)) and node.value == 0)
+            ):
+                return ir.Constant(var_type, None)
 
             # Integer literals
             if isinstance(var_type, ir.IntType):
-                return self._expression_parse_integer_literal(node.value, var_type)
+                # Handle different types of input for integer literals
+                if hasattr(self, '_expression_parse_integer_literal'):
+                    return self._expression_parse_integer_literal(node.value, var_type)
+                else:
+                    # Fallback if the helper method doesn't exist
+                    if isinstance(node.value, str):
+                        # Handle hexadecimal, octal, binary literals
+                        if node.value.startswith('0x') or node.value.startswith('0X'):
+                            int_val = int(node.value, 16)
+                        elif node.value.startswith('0b') or node.value.startswith('0B'):
+                            int_val = int(node.value, 2)
+                        elif node.value.startswith('0') and len(node.value) > 1 and node.value[1].isdigit():
+                            int_val = int(node.value, 8)
+                        else:
+                            # Try parsing as decimal
+                            int_val = int(float(node.value))
+                    else:
+                        # Already a numeric value
+                        int_val = int(node.value)
+                    return ir.Constant(var_type, int_val)
 
             # Floating point literals
             if isinstance(var_type, (ir.FloatType, ir.DoubleType)):
-                return ir.Constant(var_type, float(node.value))
+                if isinstance(node.value, str):
+                    float_val = float(node.value)
+                else:
+                    float_val = float(node.value)
+                return ir.Constant(var_type, float_val)
 
             raise ValueError(f"Unsupported literal type for value: '{node.value}'")
-        except ValueError:
+        except ValueError as e:
+            if debug:
+                print(f"Error handling literal: {e}")
             raise ValueError(f"Invalid literal or undefined variable: '{node.value}'")
-
-
     def _expression_parse_integer_literal(self, value: str, var_type: ir.IntType):
         val = int(value)
 
@@ -1082,7 +1210,7 @@ class Codegen:
         # Handle initial value if present
         if node.value:
             value = self.handle_expression(node.value, builder, var_type)
-            
+                
             if not value:
                 if is_pointer:
                     # Initialize to null pointer
@@ -1090,6 +1218,9 @@ class Codegen:
                 else:
                     # Default to zero for non-pointer types
                     value = ir.Constant(var_type, 0)
+            else:
+                # Apply proper type casting before storing
+                value = self._cast_value(value, var_type, builder)
                     
             builder.store(value, var)
         else:
@@ -1197,10 +1328,14 @@ class Codegen:
 
         src_type = value.type
 
+        # Handle Same-Type Pass-Through
+        if src_type == target_type:
+            return value
+
         # Integer to Integer
         if isinstance(target_type, ir.IntType) and isinstance(src_type, ir.IntType):
             if target_type.width > src_type.width:
-                return builder.sext(value, target_type, name="sext") if Datatypes.is_signed_type(target_type) else builder.zext(value, target_type, name="zext")
+                return builder.sext(value, target_type, name="sext") if Datatypes.is_signed_type(str(target_type)) else builder.zext(value, target_type, name="zext")
             else:
                 return builder.trunc(value, target_type, name="trunc")
 
@@ -1213,7 +1348,7 @@ class Codegen:
 
         # Int to Float
         if isinstance(target_type, (ir.FloatType, ir.DoubleType)) and isinstance(src_type, ir.IntType):
-            return builder.sitofp(value, target_type, name="sitofp") if Datatypes.is_signed_type(src_type) else builder.uitofp(value, target_type, name="uitofp")
+            return builder.sitofp(value, target_type, name="sitofp") if Datatypes.is_signed_type(str(src_type)) else builder.uitofp(value, target_type, name="uitofp")
 
         # Float to Int
         if isinstance(target_type, ir.IntType) and isinstance(src_type, (ir.FloatType, ir.DoubleType)):
@@ -1222,6 +1357,24 @@ class Codegen:
         # Pointer to Pointer
         if isinstance(target_type, ir.PointerType) and isinstance(src_type, ir.PointerType):
             return builder.bitcast(value, target_type, name="ptr_cast")
+        
+        # Integer to Pointer
+        if isinstance(target_type, ir.PointerType) and isinstance(src_type, ir.IntType):
+            return builder.inttoptr(value, target_type, name="int_to_ptr")
+        
+        # Pointer to Integer
+        if isinstance(target_type, ir.IntType) and isinstance(src_type, ir.PointerType):
+            return builder.ptrtoint(value, target_type, name="ptr_to_int")
+        
+        # Boolean to Integer
+        if isinstance(target_type, ir.IntType) and isinstance(src_type, ir.IntType) and src_type.width == 1:
+            return builder.zext(value, target_type, name="bool_to_int")
+        
+        # Integer to Boolean
+        if isinstance(target_type, ir.IntType) and target_type.width == 1 and isinstance(src_type, ir.IntType):
+            # Comparing with zero to convert to boolean (0 = false, non-zero = true)
+            zero = ir.Constant(src_type, 0)
+            return builder.icmp_unsigned('!=', value, zero, name="int_to_bool")
 
         raise TypeError(f"Incompatible types for assignment: {src_type} cannot be assigned to {target_type}")
 
