@@ -281,6 +281,7 @@ separators = {
     "LBRACE": "{",          # left curly brace
     "RBRACE": "}",          # right curly brace
     "ARROW": "->",          # member or function pointer access
+    "THREEDOTS": "...",        # ellipsis for variadic functions
 }
 
 class Token: 
@@ -454,17 +455,34 @@ class Lexer:
                     cursor += len(operator_value)
                     column += len(operator_value)
                     break
+                
+            # Handle ellipsis first
+            if source_code[cursor:cursor + 3] == separators["THREEDOTS"]:
+                token = Token(TokenType.OPERATOR, separators["THREEDOTS"], line, column)
+                tokens.append(token)
+                cursor += 3
+                column += 3
+
+            # Handle Operators
             else:
-                # Handle Separators
-                for separator_name, separator_value in separators.items():
-                    if source_code[cursor:cursor + len(separator_value)] == separator_value:
-                        token = Token(TokenType.SEPARATOR, separator_value, line, column)
+                for operator_name, operator_value in sorted(operators.items(), key=lambda x: -len(x[1])):  # Match longest first
+                    if source_code[cursor:cursor + len(operator_value)] == operator_value:
+                        token = Token(TokenType.OPERATOR, operator_value, line, column)
                         tokens.append(token)
-                        cursor += len(separator_value)
-                        column += len(separator_value)
+                        cursor += len(operator_value)
+                        column += len(operator_value)
                         break
                 else:
-                    cursor += 1
-                    column += 1
+                    # Handle Separators
+                    for separator_name, separator_value in separators.items():
+                        if source_code[cursor:cursor + len(separator_value)] == separator_value:
+                            token = Token(TokenType.SEPARATOR, separator_value, line, column)
+                            tokens.append(token)
+                            cursor += len(separator_value)
+                            column += len(separator_value)
+                            break
+                    else:
+                        cursor += 1
+                        column += 1
 
         return tokens
