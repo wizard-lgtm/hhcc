@@ -353,7 +353,6 @@ class Lexer:
                 
                 directive_name = source_code[directive_start:cursor]
                 
-
                 # Skip whitespace after directive name
                 while cursor < len(source_code) and source_code[cursor].isspace() and source_code[cursor] != '\n':
                     cursor += 1
@@ -368,7 +367,6 @@ class Lexer:
                 tokens.append(token)
                 column += cursor - start
                 continue
-
 
             # Identifiers and Keywords
             if current_chr.isalpha() or current_chr == "_":  # Start of an identifier/keyword
@@ -391,11 +389,41 @@ class Lexer:
                 column += cursor - start
                 continue  # Avoid incrementing cursor again
 
-            # Numerical Literals
-            elif current_chr.isdigit():
+            # Numerical Literals (including floating point)
+            elif current_chr.isdigit() or (current_chr == '.' and cursor + 1 < len(source_code) and source_code[cursor + 1].isdigit()):
                 start = cursor
+                has_decimal_point = False
+
+                # First part: digits before decimal point
                 while cursor < len(source_code) and source_code[cursor].isdigit():
                     cursor += 1
+                
+                # Handle decimal point if present
+                if cursor < len(source_code) and source_code[cursor] == '.':
+                    has_decimal_point = True
+                    cursor += 1  # Consume the decimal point
+                    
+                    # Digits after decimal point
+                    while cursor < len(source_code) and source_code[cursor].isdigit():
+                        cursor += 1
+
+                # Handle scientific notation (e.g. 1.23e+10)
+                if cursor < len(source_code) and (source_code[cursor] == 'e' or source_code[cursor] == 'E'):
+                    cursor += 1  # Consume the 'e' or 'E'
+                    
+                    # Optional + or - sign
+                    if cursor < len(source_code) and (source_code[cursor] == '+' or source_code[cursor] == '-'):
+                        cursor += 1
+                    
+                    # Exponent digits
+                    if cursor < len(source_code) and source_code[cursor].isdigit():
+                        while cursor < len(source_code) and source_code[cursor].isdigit():
+                            cursor += 1
+                    else:
+                        # Malformed scientific notation, roll back to before the 'e'/'E'
+                        cursor = start
+                        while cursor < len(source_code) and source_code[cursor] != 'e' and source_code[cursor] != 'E':
+                            cursor += 1
 
                 value = source_code[start:cursor]
                 token = Token(TokenType.LITERAL, value, line, column)
@@ -417,7 +445,6 @@ class Lexer:
                 tokens.append(token)
                 column += cursor - start
                 continue  # Avoid incrementing cursor again
-
 
             # Handle Operators
             for operator_name, operator_value in sorted(operators.items(), key=lambda x: -len(x[1])):  # Match longest first
