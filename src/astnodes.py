@@ -165,11 +165,12 @@ class ASTNode:
 
     class FunctionDefinition:
         def __init__(self, name: str, return_type: str, body: 'ASTNode.Block', 
-                    parameters: List['ASTNode.VariableDeclaration']):
+                    parameters: List['ASTNode.VariableDeclaration'], has_variadic_args: bool = False):
             self.name: str = name
             self.return_type: str = return_type
             self.parameters: List['ASTNode.VariableDeclaration'] = parameters or []
             self.body: 'ASTNode.Block' = body 
+            has_variadic_args = has_variadic_args
 
         def print_tree(self, prefix: str = "") -> str:
             result = f"{prefix}FunctionDefinition\n"
