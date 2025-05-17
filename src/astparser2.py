@@ -377,101 +377,107 @@ class ASTParser:
         self.next_token()  # Consume the right brace
     
         return ASTNode.Block(nodes)
-    def function_declaration(self):
-        func_name = ""
-        func_return_type = None
-        parameters = []
-        body = ASTNode.Block
-        has_variadic_args = False
-
-        # Return type
-        func_return_type = self.current_token().value
-
-        # Get function name
-        next_token = self.next_token()
-        if next_token._type != TokenType.LITERAL:
-            self.syntax_error("Expected function name", next_token)
-        func_name = next_token.value
-
-        # Move to '('
-        next_token = self.next_token()
-        if not next_token or next_token.value != separators["LPAREN"]:
-            self.syntax_error("Expected '('", next_token)
-
-        while True:
-            peek_token = self.peek_token()
-
-            # Handle variadic: "..."
-            if peek_token and peek_token._type == TokenType.OPERATOR and peek_token.value == separators["THREEDOTS"]:
-                self.next_token()  # Consume '...'
-                has_variadic_args = True
-
-                next_token = self.next_token()
-                if not next_token or next_token.value != separators["RPAREN"]:
-                    self.syntax_error("Expected ')' after '...'", next_token)
-                break
-
-            # End of parameter list
-            if peek_token and peek_token.value == separators["RPAREN"]:
-                self.next_token()  # Consume ')'
-                break
-
-            # Parse typed parameter
-            param_type = self.next_token()
-            if not param_type or param_type._type != TokenType.KEYWORD:
-                self.syntax_error("Expected parameter type", param_type)
-            if not (param_type.value in Datatypes.all_types()):
-                self.syntax_error("Invalid parameter type", param_type)
-
-            # Pointer check
-            is_pointer = False
-            peek_token = self.peek_token()
-            if peek_token and peek_token._type == TokenType.OPERATOR and peek_token.value == operators["POINTER"]:
-                self.next_token()  # Consume '*'
-                is_pointer = True
-
-            # Parameter name
-            param_name = self.next_token()
-            if not param_name or param_name._type != TokenType.LITERAL:
-                self.syntax_error("Expected parameter name", param_name)
-
-            # Default value check
-            default_value = None
-            peek_token = self.peek_token()
-            if peek_token and peek_token.value == operators["ASSIGN"]:
-                self.next_token()  # Consume '='
-                default_value_token = self.next_token()
-                if not default_value_token or default_value_token._type != TokenType.LITERAL:
-                    self.syntax_error("Expected default value", default_value_token)
-                default_value = default_value_token.value
-
-            # Append parameter
-            param = ASTNode.VariableDeclaration(
-                param_type.value, param_name.value, default_value, False, is_pointer
-            )
-            parameters.append(param)
-
-            # Comma or end of parameters
-            next_token = self.next_token()
-            if next_token.value == separators["RPAREN"]:
-                break
-            elif next_token.value != separators["COMMA"]:
-                self.syntax_error("Expected ',' or ')'", next_token)
-
-        # Function body or declaration
-        next_token = self.next_token()
-        if next_token is None or next_token.value not in [separators["SEMICOLON"], separators["LBRACE"]]:
+    def function_declaration(self): 
+        func_name = "" 
+        func_return_type = None 
+        parameters = [] 
+        body = None
+        has_variadic_args = False 
+        
+        # Return type 
+        func_return_type = self.current_token().value 
+        
+        # Get function name 
+        next_token = self.next_token() 
+        if next_token._type != TokenType.LITERAL: 
+            self.syntax_error("Expected function name", next_token) 
+        func_name = next_token.value 
+        
+        # Move to '(' 
+        next_token = self.next_token() 
+        if not next_token or next_token.value != separators["LPAREN"]: 
+            self.syntax_error("Expected '('", next_token) 
+        
+        while True: 
+            peek_token = self.peek_token() 
+            
+            # Handle variadic: "..." 
+            if peek_token and peek_token._type == TokenType.OPERATOR and peek_token.value == separators["THREEDOTS"]: 
+                self.next_token() # Consume '...' 
+                has_variadic_args = True 
+                next_token = self.next_token() 
+                if not next_token or next_token.value != separators["RPAREN"]: 
+                    self.syntax_error("Expected ')' after '...'", next_token) 
+                break 
+            
+            # End of parameter list 
+            if peek_token and peek_token.value == separators["RPAREN"]: 
+                self.next_token() # Consume ')' 
+                break 
+            
+            # Parse typed parameter 
+            param_type = self.next_token() 
+            if not param_type or param_type._type != TokenType.KEYWORD: 
+                self.syntax_error("Expected parameter type", param_type) 
+            if not (param_type.value in Datatypes.all_types()): 
+                self.syntax_error("Invalid parameter type", param_type) 
+            
+            # Pointer check 
+            is_pointer = False 
+            peek_token = self.peek_token() 
+            if peek_token and peek_token._type == TokenType.OPERATOR and peek_token.value == operators["POINTER"]: 
+                self.next_token() # Consume '*' 
+                is_pointer = True 
+            
+            # Parameter name 
+            param_name = self.next_token() 
+            if not param_name or param_name._type != TokenType.LITERAL: 
+                self.syntax_error("Expected parameter name", param_name) 
+            
+            # Default value check 
+            default_value = None 
+            peek_token = self.peek_token() 
+            if peek_token and peek_token.value == operators["ASSIGN"]: 
+                self.next_token() # Consume '=' 
+                default_value_token = self.next_token() 
+                if not default_value_token or default_value_token._type != TokenType.LITERAL: 
+                    self.syntax_error("Expected default value", default_value_token) 
+                default_value = default_value_token.value 
+            
+            # Append parameter 
+            param = ASTNode.VariableDeclaration( 
+                param_type.value, 
+                param_name.value, 
+                default_value, 
+                False, 
+                is_pointer 
+            ) 
+            parameters.append(param) 
+            
+            # Comma or end of parameters 
+            next_token = self.next_token() 
+            if next_token.value == separators["RPAREN"]: 
+                break 
+            elif next_token.value != separators["COMMA"]: 
+                self.syntax_error("Expected ',' or ')'", next_token) 
+        
+        # Function body or declaration 
+        next_token = self.peek_token()  # Just peek to check what's next
+        if next_token is None:
             self.syntax_error("Expected ';' or '{'", next_token)
-
+        
         if next_token.value == separators["LBRACE"]:
-            body = self.block()
-        else:
+            self.next_token()  # Consume '{'
+            body = self.block() 
+        elif next_token.value == separators["SEMICOLON"]:
+            self.next_token()  # Consume ';'
+            self.next_token()  # Consume ';'
             body = None
-
+        else:
+            self.syntax_error("Expected ';' or '{'", next_token)
+        
         return ASTNode.FunctionDefinition(func_name, func_return_type, body, parameters, has_variadic_args)
         
-    
-    
     def if_statement(self):
 
         # Parse condition
@@ -858,24 +864,30 @@ class ASTParser:
         return ASTNode.ArrayInitialization(elements)
 
 
+
     def parse_statement(self, inside_block: bool = False) -> ASTNode:
-        
         current_token = self.current_token()
         if not current_token:
             return None
-
+        
         # Handle extern declarations
         if current_token._type == TokenType.KEYWORD and current_token.value == keywords["EXTERN"]:
             return self.parse_extern_declaration()
-
+        
         if current_token._type == TokenType.KEYWORD:
             next_token = self.peek_token()
-            print(Datatypes.all_types()) 
+            
+            # Handle function declarations and definitions
             if current_token.value in Datatypes.all_types():
-                if next_token._type == TokenType.LITERAL and self.peek_token(2).value == separators["LPAREN"]:
-                    return self.function_declaration()
-                else: 
-                    return self.variable_declaration()
+                if next_token._type == TokenType.LITERAL:
+                    # Check if it's potentially a function
+                    peek_token_2 = self.peek_token(2)
+                    if peek_token_2 and peek_token_2.value == separators["LPAREN"]:
+                        print("YES3")
+                        return self.function_declaration()
+                    else:
+                        return self.variable_declaration()
+                
             if current_token.value == keywords["RETURN"]:
                 return self.return_statement()
             if current_token.value == keywords["IF"]:
@@ -892,11 +904,11 @@ class ASTParser:
                 return self.break_statement()
             if current_token.value == keywords["CONTINUE"]:
                 return self.continue_statement()
-
+        
         if current_token._type == TokenType.SEPARATOR:
             if current_token.value == separators["LBRACE"]:
                 return self.block()
-
+        
         elif current_token._type == TokenType.LITERAL:
             next_token = self.peek_token()
             if current_token.value in Datatypes.user_defined_types:
@@ -910,19 +922,18 @@ class ASTParser:
             elif next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["DOT"]:
                 # Struct field assignment: t.a = 1;
                 return self.struct_field_assignment()
-
+        
         if current_token._type == TokenType.COMMENT:
             return self.comment()
-
-    
+        
         elif self.current_token()._type == TokenType.LITERAL and self.peek_token(1).value == operators["increment"]:
             return self.variable_increment()
         elif self.current_token()._type == TokenType.LITERAL and self.peek_token(1).value == operators["decrement"]:
             return self.variable_decrement()
         
         self.syntax_error("Unexpected statement", current_token)
-        
-                
+                    
+
     def parse_extern_declaration(self) -> ASTNode:
         """
         Parse extern declarations for variables, functions, and struct forward declarations.
@@ -931,61 +942,33 @@ class ASTParser:
         self.next_token()  # Consume 'extern'
         current_token = self.current_token()
 
-        # Handle struct forward declaration
-        if current_token._type == TokenType.KEYWORD and current_token.value == keywords["CLASS"]:
-            self.next_token()  # Consume 'struct'
-            struct_name_token = self.current_token()
-            if struct_name_token._type != TokenType.LITERAL:
-                self.syntax_error("Expected struct name", struct_name_token)
-            struct_name = struct_name_token.value
-            self.next_token()  # Consume struct name
-
-            semicolon = self.current_token()
-            if semicolon._type != TokenType.SEPARATOR or semicolon.value != separators["SEMICOLON"]:
-                self.syntax_error("Expected ';' after struct declaration", semicolon)
-            self.next_token()  # Consume ';'
-
-            struct_decl = ASTNode.Class(struct_name, [], None)
-            return ASTNode.Extern(struct_decl)
-
-        # Handle variable or function declaration
-        if current_token._type == TokenType.KEYWORD and current_token.value in Datatypes.all_types():
-            var_type = current_token.value
-            self.next_token()  # Consume type
-
-            # Handle pointer type (e.g., int*)
-            if self.current_token()._type == TokenType.OPERATOR and self.current_token().value == operators["MULTIPLY"]:
-                var_type += "*"
-                self.next_token()  # Consume '*'
-
-            name_token = self.current_token()
-            if name_token._type != TokenType.LITERAL:
-                self.syntax_error("Expected identifier name", name_token)
-            name = name_token.value
-            self.next_token()  # Consume identifier
-
-            # Check if it's a function declaration
-            if self.current_token()._type == TokenType.SEPARATOR and self.current_token().value == separators["LPAREN"]:
-                parameters = self.parse_parameters()
-
-                if self.current_token()._type != TokenType.SEPARATOR or self.current_token().value != separators["SEMICOLON"]:
-                    self.syntax_error("Expected ';' after extern function declaration", self.current_token())
-                self.next_token()  # Consume ';'
-
-                func_decl = ASTNode.FunctionDefinition(name, var_type, None, parameters)
-                return ASTNode.Extern(func_decl)
-
-            # Otherwise, it's a variable declaration
-            if self.current_token()._type != TokenType.SEPARATOR or self.current_token().value != separators["SEMICOLON"]:
-                self.syntax_error("Expected ';' after extern variable declaration", self.current_token())
-            self.next_token()  # Consume ';'
-
-            var_decl = ASTNode.VariableDeclaration(var_type, name)
-            return ASTNode.Extern(var_decl)
-
-        self.syntax_error("Expected type or 'struct' after 'extern'", self.current_token())
-
+        if not current_token:
+            self.syntax_error("Expected statement after 'extern'", current_token)
         
+        # Handle extern variable declarations
+        if current_token._type == TokenType.KEYWORD and current_token.value in Datatypes.all_types():
+            # Check if it's potentially a function
+            next_token = self.peek_token()
+            if next_token and next_token._type == TokenType.LITERAL:
+                peek_token_2 = self.peek_token(2)
+                if peek_token_2 and peek_token_2.value == separators["LPAREN"]:
+                    # It's a function declaration
+                    func_decl = self.function_declaration()
+                    return ASTNode.Extern(func_decl)
+                else:
+                    # It's a variable declaration
+                    var_decl = self.variable_declaration(user_typed=True)
+                    return ASTNode.Extern(var_decl)
+        
+        # Handle extern struct declarations
+        elif current_token._type == TokenType.KEYWORD and current_token.value == keywords["STRUCT"]:
+            # Use the existing class declaration parser
+            # For a forward declaration, this should handle the struct name and semicolon
+            struct_decl = self.class_declaration()
+            return ASTNode.Extern(struct_decl)
+        
+        # If we reach here, it's an error
+        self.syntax_error("Expected type or 'struct' after 'extern'", self.current_token())        
 
     def variable_decrement(self):
         node =  ASTNode.VariableDecrement(self.current_token().value)
