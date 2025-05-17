@@ -883,7 +883,6 @@ class ASTParser:
                     # Check if it's potentially a function
                     peek_token_2 = self.peek_token(2)
                     if peek_token_2 and peek_token_2.value == separators["LPAREN"]:
-                        print("YES3")
                         return self.function_declaration()
                     else:
                         return self.variable_declaration()

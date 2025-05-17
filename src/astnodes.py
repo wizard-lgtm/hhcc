@@ -486,10 +486,6 @@ class ASTNode:
         def __repr__(self) -> str:
             return self.print_tree()
 
-
-
- 
-        
     class Extern:
         class ExternType(Enum):
             FUNCTION = auto()

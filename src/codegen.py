@@ -861,7 +861,6 @@ class Codegen:
         if node is None:
             raise ValueError("Node is None, cannot handle expression.")
 
-        print(node)
     
         match node.node_type:
             case NodeType.BINARY_OP:
@@ -1245,7 +1244,6 @@ class Codegen:
         struct_ptr = struct_info.llvm_value
         struct_type_name = struct_info.data_type
 
-        print(self.struct_table)
         struct_type_info = self.struct_table[struct_type_name]["class_type_info"]
 
         if field_name not in struct_type_info.field_names:
@@ -1590,9 +1588,10 @@ class Codegen:
             llvm_args.append(llvm_arg)
         
         # Before calling, let's log what we're about to do for debugging
-        print(f"Calling function {func_name} with {len(llvm_args)} arguments")
-        for i, arg in enumerate(llvm_args):
-            print(f"  Argument {i}: {arg}, Type: {arg.type}")
+        if self.compiler.debug:
+            print(f"Calling function {func_name} with {len(llvm_args)} arguments")
+            for i, arg in enumerate(llvm_args):
+                print(f"  Argument {i}: {arg}, Type: {arg.type}")
         
         # Make the function call in LLVM IR
         if func.function_type.return_type == ir.VoidType():
