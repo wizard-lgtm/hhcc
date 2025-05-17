@@ -1,7 +1,8 @@
-extern U32 printf(U8* format);
+extern U32 externed_func(U8 a);
 U8 my_func(U8 a, ...){
     return 10;
 }
 U8 main(){
-    return my_func(1);
+    U8 b = externed_func(1);
+    return b;
 }
