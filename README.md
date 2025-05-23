@@ -24,7 +24,7 @@ remy clarke said python is kinda suitable for compiler development. it works tho
 
 The project is still under heavy development and isn't ready for use yet. Please check the issues for updates.
 
-I'm planning to release **version 0.1.0 by the end of April**.
+I'm planning to release **version 0.1.0 by the end of June**.
 
 # Prerequirements
 
