@@ -250,6 +250,8 @@ class Codegen:
         self.function_map = {}
         self.struct_table = {}
 
+        self.string_literals = []
+
         # Node type to handler mapping
         self.node_handlers: Dict[Type, Callable] = {
             ASTNode.ExpressionNode: self.handle_expression,
@@ -956,8 +958,119 @@ class Codegen:
         var_ptr = self.get_variable_pointer(node.left.value)
         return var_ptr
 
+    def _process_escape_sequences(self, string_content: str) -> str:
+        """
+        Process escape sequences in string literals.
+        
+        Args:
+            string_content: The string content without quotes
+            
+        Returns:
+            String with escape sequences processed
+        """
+        # Handle common escape sequences
+        escape_map = {
+            '\\n': '\n',
+            '\\t': '\t',
+            '\\r': '\r',
+            '\\\\': '\\',
+            '\\"': '"',
+            "\\'": "'",
+            '\\0': '\0'
+        }
+        
+        result = string_content
+        for escape_seq, replacement in escape_map.items():
+            result = result.replace(escape_seq, replacement)
+        
+        return result
 
+    def _create_string_literal(self, quoted_string: str, builder: ir.IRBuilder, target_type):
+        """
+        Create a string literal in LLVM IR.
+        
+        Args:
+            quoted_string: The string including quotes (e.g., '"Hello"')
+            builder: The LLVM IR builder
+            target_type: The target type (should be pointer type)
+            
+        Returns:
+            LLVM value representing the string literal
+        """
+        # Remove the quotes
+        string_content = quoted_string[1:-1]
+        
+        # Handle escape sequences
+        string_content = self._process_escape_sequences(string_content)
+        
+        # Special handling for single byte types (U8/I8)
+        if isinstance(target_type, ir.IntType) and target_type.width == 8:
+            if len(string_content) == 0:
+                # Empty string -> null character
+                return ir.Constant(target_type, 0)
+            elif len(string_content) == 1:
+                # Single character -> return its ASCII value
+                return ir.Constant(target_type, ord(string_content[0]))
+            else:
+                # Multi-character string -> take first character with warning
+                # You might want to add a warning system to your compiler
+                print(f"Warning: String literal '{quoted_string}' truncated to first character for U8 variable")
+                return ir.Constant(target_type, ord(string_content[0]))
+        
+        # For pointer types or other types, create a proper string
+        # Create a global string constant
+        # Add null terminator
+        string_with_null = string_content + '\0'
+        
+        # Create the array type for the string
+        string_array_type = ir.ArrayType(ir.IntType(8), len(string_with_null))
+        
+        # Create a global variable for the string
+        string_global = ir.GlobalVariable(self.module, string_array_type, name=f"str_{len(self.string_literals)}")
+        string_global.linkage = 'internal'
+        string_global.global_constant = True
+        
+        # Initialize with the string content
+        string_global.initializer = ir.Constant(string_array_type, bytearray(string_with_null.encode('utf-8')))
+        
+        # Keep track of string literals (you may want to add this as an instance variable)
+        if not hasattr(self, 'string_literals'):
+            self.string_literals = []
+        self.string_literals.append(string_global)
+        
+        # Create a GEP instruction to get pointer to the first character
+        zero = ir.Constant(ir.IntType(32), 0)
+        string_ptr = builder.gep(string_global, [zero, zero], name="str_ptr")
+        
+        return string_ptr
+
+    # Alternative approach - if you want to be more strict about type checking
+    def _create_string_literal_strict(self, quoted_string: str, builder: ir.IRBuilder, target_type):
+        """
+        Strict version that provides better error messages for type mismatches.
+        """
+        # Remove the quotes
+        string_content = quoted_string[1:-1]
+        
+        # Handle escape sequences
+        string_content = self._process_escape_sequences(string_content)
+        
+        # Strict type checking for single byte types
+        if isinstance(target_type, ir.IntType) and target_type.width == 8:
+            if len(string_content) == 0:
+                return ir.Constant(target_type, 0)  # Empty string -> null char
+            elif len(string_content) == 1:
+                return ir.Constant(target_type, ord(string_content[0]))  # Single char
+            else:
+                # Provide helpful error message
+                raise TypeError(f"Cannot assign string literal '{quoted_string}' to U8 variable. "
+                            f"String has {len(string_content)} characters but U8 can only hold 1. "
+                            f"Consider:\n"
+                            f"  - Using a single character: '\"T\"' (first char of '{string_content}')\n"
+                            f"  - Declaring variable as string pointer: 'var a: *U8 = {quoted_string}'\n"
+                            f"  - Using an array: 'var a: [4]U8 = ...' for fixed-size strings")
     
+
     def _expression_handle_literal(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type):
         """
         Handle literal expressions like numbers, booleans, strings, etc.
@@ -991,10 +1104,19 @@ class Codegen:
             if var_info:
                 return builder.load(var_info.llvm_value, name=f"load_{node.value}")
         
+        # Check if this is a string literal (quoted string)
+        is_string_literal = (isinstance(node.value, str) and 
+                            len(node.value) >= 2 and 
+                            node.value.startswith('"') and 
+                            node.value.endswith('"'))
+        
         # Infer type if not specified
         if var_type is None:
             if isinstance(node.value, str):
-                if node.value.isdigit():
+                if is_string_literal:
+                    # String literal - return pointer to i8 array
+                    var_type = ir.PointerType(ir.IntType(8))
+                elif node.value.isdigit():
                     var_type = ir.IntType(32)  # default to i32
                 elif node.value.lower() in ['true', 'false']:
                     var_type = ir.IntType(1)
@@ -1009,6 +1131,139 @@ class Codegen:
                 raise ValueError(f"Unsupported literal type: {type(node.value)}")
 
         try:
+            # Handle string literals
+            if is_string_literal:
+                return self._create_string_literal(node.value, builder, var_type)
+            
+            # Boolean literals (true/false)
+            if isinstance(var_type, ir.IntType) and var_type.width == 1:
+                if isinstance(node.value, str) and node.value.lower() == 'true':
+                    return ir.Constant(var_type, 1)
+                elif isinstance(node.value, str) and node.value.lower() == 'false':
+                    return ir.Constant(var_type, 0)
+                elif isinstance(node.value, (int, float)):
+                    # Convert numeric value to boolean (0 = false, non-zero = true)
+                    return ir.Constant(var_type, 1 if node.value != 0 else 0)
+
+            # Handle NULL (zero) pointer
+            if isinstance(var_type, ir.PointerType) and (
+                (isinstance(node.value, str) and (node.value == "0" or node.value.upper() == "NULL")) or
+                (isinstance(node.value, (int, float)) and node.value == 0)
+            ):
+                return ir.Constant(var_type, None)
+
+            # Integer literals
+            if isinstance(var_type, ir.IntType):
+                # Handle different types of input for integer literals
+                if hasattr(self, '_expression_parse_integer_literal'):
+                    return self._expression_parse_integer_literal(node.value, var_type)
+                else:
+                    # Fallback if the helper method doesn't exist
+                    if isinstance(node.value, str):
+                        # Handle hexadecimal, octal, binary literals
+                        if node.value.startswith('0x') or node.value.startswith('0X'):
+                            int_val = int(node.value, 16)
+                        elif node.value.startswith('0b') or node.value.startswith('0B'):
+                            int_val = int(node.value, 2)
+                        elif node.value.startswith('0') and len(node.value) > 1 and node.value[1].isdigit():
+                            int_val = int(node.value, 8)
+                        else:
+                            # Try parsing as decimal
+                            int_val = int(float(node.value))
+                    else:
+                        # Already a numeric value
+                        int_val = int(node.value)
+                    return ir.Constant(var_type, int_val)
+
+            # Floating point literals
+            if isinstance(var_type, (ir.FloatType, ir.DoubleType)):
+                if isinstance(node.value, str):
+                    float_val = float(node.value)
+                else:
+                    float_val = float(node.value)
+                return ir.Constant(var_type, float_val)
+
+            raise ValueError(f"Unsupported literal type for value: '{node.value}'")
+            
+        except ValueError as e:
+            # Enhanced error handling for string-to-byte assignment
+            if is_string_literal and isinstance(var_type, ir.IntType) and var_type.width == 8:
+                string_content = node.value[1:-1]  # Remove quotes
+                if len(string_content) > 1:
+                    raise ValueError(f"Cannot assign multi-character string literal '{node.value}' to single byte variable. "
+                                f"Use a single character like '\"T\"' or declare variable as string pointer.")
+            
+            if debug:
+                print(f"Error handling literal: {e}")
+            raise ValueError(f"Invalid literal or undefined variable: '{node.value}'")
+
+
+
+        
+    def _expression_handle_literal(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type):
+        """
+        Handle literal expressions like numbers, booleans, strings, etc.
+        
+        Args:
+            node: The AST node containing the literal value
+            builder: The LLVM IR builder
+            var_type: The target type for the literal
+            
+        Returns:
+            LLVM value representing the literal with appropriate type
+        """
+        # Print debug info
+        debug = getattr(self, 'debug', False)
+        if debug:
+            print(f"Handling literal: '{node.value}', target type: {var_type}")
+        
+        # If the value is not a string attribute but some other type of node
+        # Handle special node types that might be misidentified as literals
+        if not hasattr(node, 'value'):
+            if debug:
+                print(f"Node doesn't have a 'value' attribute: {node}")
+            if hasattr(node, 'node_type') and node.node_type == NodeType.STRUCT_ACCESS:
+                return self.handle_struct_access(node, builder)
+            else:
+                raise ValueError(f"Invalid literal node: {node}")
+        
+        # Handle variable reference if it's in the symbol table
+        if isinstance(node.value, str) and node.value in self.symbol_table:
+            var_info = self.symbol_table.lookup(node.value)
+            if var_info:
+                return builder.load(var_info.llvm_value, name=f"load_{node.value}")
+        
+        # Check if this is a string literal (quoted string)
+        is_string_literal = (isinstance(node.value, str) and 
+                            len(node.value) >= 2 and 
+                            node.value.startswith('"') and 
+                            node.value.endswith('"'))
+        
+        # Infer type if not specified
+        if var_type is None:
+            if isinstance(node.value, str):
+                if is_string_literal:
+                    # String literal - return pointer to i8 array
+                    var_type = ir.PointerType(ir.IntType(8))
+                elif node.value.isdigit():
+                    var_type = ir.IntType(32)  # default to i32
+                elif node.value.lower() in ['true', 'false']:
+                    var_type = ir.IntType(1)
+                elif '.' in node.value and all(c.isdigit() or c == '.' or c == '-' or c == '+' or c.lower() == 'e' 
+                                            for c in node.value):
+                    var_type = ir.DoubleType()  # or FloatType
+                else:
+                    # Could be a variable name or other identifier
+                    raise ValueError(f"Cannot infer type for literal value: '{node.value}'")
+            else:
+                # If not a string, what is it?
+                raise ValueError(f"Unsupported literal type: {type(node.value)}")
+
+        try:
+            # Handle string literals
+            if is_string_literal:
+                return self._create_string_literal(node.value, builder, var_type)
+            
             # Boolean literals (true/false)
             if isinstance(var_type, ir.IntType) and var_type.width == 1:
                 if isinstance(node.value, str) and node.value.lower() == 'true':
@@ -1062,6 +1317,8 @@ class Codegen:
             if debug:
                 print(f"Error handling literal: {e}")
             raise ValueError(f"Invalid literal or undefined variable: '{node.value}'")
+        
+        
     def _expression_parse_integer_literal(self, value: str, var_type: ir.IntType):
         val = int(value)
 
