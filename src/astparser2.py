@@ -863,8 +863,6 @@ class ASTParser:
         
         return ASTNode.ArrayInitialization(elements)
 
-
-
     def parse_statement(self, inside_block: bool = False) -> ASTNode:
         current_token = self.current_token()
         if not current_token:
@@ -879,7 +877,18 @@ class ASTParser:
             
             # Handle function declarations and definitions
             if current_token.value in Datatypes.all_types():
-                if next_token._type == TokenType.LITERAL:
+                # Check for pointer type first
+                if next_token._type == TokenType.OPERATOR and next_token.value == operators["POINTER"]:
+                    # Look ahead one more token to see the variable name
+                    peek_token_2 = self.peek_token(2)
+                    if peek_token_2 and peek_token_2._type == TokenType.LITERAL:
+                        # Check if it's a function (look for opening parenthesis after variable name)
+                        peek_token_3 = self.peek_token(3)
+                        if peek_token_3 and peek_token_3.value == separators["LPAREN"]:
+                            return self.function_declaration()
+                        else:
+                            return self.variable_declaration()
+                elif next_token._type == TokenType.LITERAL:
                     # Check if it's potentially a function
                     peek_token_2 = self.peek_token(2)
                     if peek_token_2 and peek_token_2.value == separators["LPAREN"]:
@@ -913,7 +922,7 @@ class ASTParser:
             if current_token.value in Datatypes.user_defined_types:
                 return self.variable_declaration(True)
             elif next_token and next_token._type == TokenType.OPERATOR and next_token.value in assignment_operators.values(): 
-                return self.variable_assignment()
+                return self.variable_declaration()
             elif (next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["LPAREN"]) or \
                 (next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["SEMICOLON"]):
                 # Function call with parentheses or without parentheses
@@ -930,7 +939,9 @@ class ASTParser:
         elif self.current_token()._type == TokenType.LITERAL and self.peek_token(1).value == operators["decrement"]:
             return self.variable_decrement()
         
-        self.syntax_error("Unexpected statement", current_token)
+        self.syntax_error("Unexpected statement", current_token) 
+
+
                     
 
     def parse_extern_declaration(self) -> ASTNode:
