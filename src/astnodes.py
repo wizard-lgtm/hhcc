@@ -541,3 +541,22 @@ class ASTNode:
         
         def __repr__(self) -> str:
             return self.print_tree()
+        
+    class CompoundVariableDeclaration:
+        """Node for multiple variable declarations in one statement"""
+        def __init__(self, declarations):
+            self.declarations = declarations
+            self.node_type = "CompoundVariableDeclaration"
+        
+        def __repr__(self):
+            return f"CompoundVariableDeclaration({self.declarations})"
+
+
+    class CompoundVariableAssignment:
+        """Node for multiple variable assignments in one statement"""
+        def __init__(self, assignments):
+            self.assignments = assignments
+            self.node_type = "CompoundVariableAssignment"
+        
+        def __repr__(self):
+            return f"CompoundVariableAssignment({self.assignments})"
