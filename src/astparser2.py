@@ -21,13 +21,13 @@ class ASTParser:
         self.tokens = tokens
 
     def current_token(self):
-        print(f"Current index: {self.index}, Total tokens: {len(self.tokens)}, Token {self.tokens[self.index]}")
         if self.index < len(self.tokens):
             return self.tokens[self.index]
         else:
             return None
     
     def next_token(self):
+        print(f"Current token: {self.current_token()}")
         self.index += 1
         return self.current_token()
     
@@ -59,97 +59,166 @@ class ASTParser:
 
 
     def variable_declaration(self, user_typed=False):
- 
-        var_type = self.current_token()
-        is_pointer = False
-    
-        peek_token = self.peek_token()
-        # Check the next token is a pointer
-        if peek_token and peek_token._type == TokenType.OPERATOR and peek_token.value == operators["POINTER"]:
+        """
+        Parse variable declarations supporting multiple variables in one statement.
+        Supports:
+        - int* a, b;
+        - U8 x = 5, y = 10;
+        - U64 a;
+        """
+        # Step 1: Parse type
+        var_type_token = self.current_token()
+        if not (var_type_token._type == TokenType.KEYWORD and var_type_token.value in Datatypes.all_types()):
+            self.syntax_error("Expected variable type", var_type_token)
+        var_type = var_type_token.value
+        self.next_token()
+        
+        # Step 2: Variable list
+        variables = []
+        
+        while True:
+            # Handle pointer level for each variable: e.g., int** a;
+            pointer_level = 0
+            while self.current_token() and self.current_token()._type == TokenType.OPERATOR and self.current_token().value == operators["POINTER"]:
+                pointer_level += 1
+                self.next_token()
+            
+            # Parse variable name
+            name_token = self.current_token()
+            if not name_token or name_token._type != TokenType.LITERAL:
+                self.syntax_error("Expected variable name", name_token)
+            var_name = name_token.value
             self.next_token()
-            is_pointer = True
-        
-        
-        # Move to variable name
-        var_name = self.next_token()
-        if not (var_name or var_name._type != TokenType.LITERAL):
-            self.syntax_error("Expected variable name", var_name)
-
-
-        # Check if this is an array declaration by looking ahead
-        peek_token = self.peek_token()
-        if peek_token and peek_token.value == separators["LBRACKET"]:
-            # Array declaration - let's consume the variable name first
-            self.next_token()  # Consume variable name
-            return self.array_declaration(var_type.value, var_name.value, user_typed)
-        
-        # Regular variable declaration continues...
-        node = ASTNode.VariableDeclaration(var_type.value, var_name.value, None, user_typed, is_pointer)
-        
-        # Move to next token to check assignment or semicolon
-        next_token = self.next_token()
-        
-        # Check for assignment
-        if next_token and next_token.value == operators["ASSIGN"]:
-
-            # Move to value and parse expression
-            self.next_token()  # Move past '='
-            node.value = self.parse_expression()
-        
-        # Check semicolon
-        self.check_semicolon()
-        
-        return node
-    def variable_assignment(self):
-
-        
-        # First token should be the variable name
-        var_name = self.current_token()
-        if not var_name or var_name._type != TokenType.LITERAL:
-            self.syntax_error("Expected variable name", var_name)
-        
-        # Move to assignment operator
-        next_token = self.next_token()
-        if not next_token or next_token._type != TokenType.OPERATOR:
-            self.syntax_error("Expected assignment operator", next_token)
-        
-        # Handle different assignment operators
-        op = next_token.value
-        
-        # Move to value and parse expression
-        self.next_token()  # Move past assignment operator
-        value = self.parse_expression()
-        
-        # Create variable assignment node
-        # For compound assignments (+=, -=, etc.), create a binary operation expression
-        if op in [operators["ADD_ASSIGN"], operators["SUBTRACT_ASSIGN"], operators["MULTIPLY_ASSIGN"], 
-                operators["DIVIDE_ASSIGN"], operators["MODULO_ASSIGN"]]:
-            # Map the compound operator to its basic operator
-            basic_op_map = {
-                operators["ADD_ASSIGN"]: "+",
-                operators["SUBTRACT_ASSIGN"]: "-",
-                operators["MULTIPLY_ASSIGN"]: "*",
-                operators["DIVIDE_ASSIGN"]: "/",
-                operators["MODULO_ASSIGN"]: "%"
-            }
             
-            # Create a binary operation for a += b equivalent to a = a + b
-            compound_value = ASTNode.ExpressionNode(
-                NodeType.BINARY_OP,
-                left=ASTNode.ExpressionNode(NodeType.LITERAL, value=var_name.value),
-                right=value,
-                op=basic_op_map[op]
+            # Optional initialization
+            value = None
+            if self.current_token() and self.current_token()._type == TokenType.OPERATOR and self.current_token().value == operators["ASSIGN"]:
+                self.next_token()  # consume '='
+                value = self.parse_expression()
+            
+            is_pointer = False
+            # If pointer !TODO set just pointer to true
+            if pointer_level > 0:
+                is_pointer = True
+            
+            # Create variable node
+            var_node = ASTNode.VariableDeclaration(
+                var_type=var_type,
+                name=var_name,
+                value=value,
+                is_user_typed=user_typed,
+                is_pointer=is_pointer
             )
+            variables.append(var_node)
+            self.nodes.append(var_node)
             
-            node = ASTNode.VariableAssignment(var_name.value, compound_value)
-        else:
-            # Simple assignment (=)
-            node = ASTNode.VariableAssignment(var_name.value, value)
+            # Check for , or ;
+            tok = self.current_token()
+            print("TOK", tok)
+            
+            # Check if it's a comma separator
+            if (tok and 
+                tok._type == TokenType.SEPARATOR and  # Note: using SEPERATOR to match your token type
+                tok.value == separators["COMMA"]):
+                self.next_token()  # consume ',' and continue loop
+                continue
+            # Check if it's a semicolon separator
+            elif (tok and 
+                tok._type == TokenType.SEPARATOR and  # Note: using SEPERATOR to match your token type
+                tok.value == separators["SEMICOLON"]):
+                self.next_token()  # consume ';' and break
+                break
+            else:
+                self.syntax_error("Expected ',' or ';' after variable declaration", tok)
+                break
         
-        # Expect semicolon
-        self.check_semicolon()
+        if len(variables) == 1:
+            return variables[0]
+        return ASTNode.CompoundVariableAssignment(variables)
 
-        return node
+        
+    def variable_assignment(self):
+        """
+        Parse variable assignments supporting multiple assignments in one statement.
+        Examples:
+        - a = 5, b = 10, c = 15;
+        - x += 1, y -= 2, z *= 3;
+        """
+        assignments = []
+        
+        while True:
+            # First token should be the variable name
+            var_name = self.current_token()
+            if not var_name or var_name._type != TokenType.LITERAL:
+                self.syntax_error("Expected variable name", var_name)
+            
+            # Move to assignment operator
+            self.next_token()  # Move past variable name
+            op_token = self.current_token()
+            if not op_token or op_token._type != TokenType.OPERATOR:
+                self.syntax_error("Expected assignment operator", op_token)
+            
+            # Handle different assignment operators
+            op = op_token.value
+            
+            # Move to value and parse expression
+            self.next_token()  # Move past assignment operator
+            value = self.parse_expression()
+            
+            # Create variable assignment node
+            if op in [operators["ADD_ASSIGN"], operators["SUBTRACT_ASSIGN"], operators["MULTIPLY_ASSIGN"], 
+                    operators["DIVIDE_ASSIGN"], operators["MODULO_ASSIGN"]]:
+                # Map the compound operator to its basic operator
+                basic_op_map = {
+                    operators["ADD_ASSIGN"]: "+",
+                    operators["SUBTRACT_ASSIGN"]: "-",
+                    operators["MULTIPLY_ASSIGN"]: "*",
+                    operators["DIVIDE_ASSIGN"]: "/",
+                    operators["MODULO_ASSIGN"]: "%"
+                }
+                
+                # Create a binary operation for a += b equivalent to a = a + b
+                compound_value = ASTNode.ExpressionNode(
+                    NodeType.BINARY_OP,
+                    left=ASTNode.ExpressionNode(NodeType.LITERAL, value=var_name.value),
+                    right=value,
+                    op=basic_op_map[op]
+                )
+                
+                node = ASTNode.VariableAssignment(var_name.value, compound_value)
+            else:
+                # Simple assignment (=)
+                node = ASTNode.VariableAssignment(var_name.value, value)
+            
+            assignments.append(node)
+            self.nodes.append(node)  # Add this line to append to parser nodes
+            
+            # Check what comes next
+            current = self.current_token()
+            if not current:
+                self.syntax_error("Unexpected end of input", None)
+            
+            # Check for comma separator (more assignments)
+            if (current._type == TokenType.SEPARATOR and  # Use SEPERATOR to match your token type
+                current.value == separators.get("COMMA", ",")):
+                self.next_token()  # Move past comma
+                continue
+            # Check for semicolon separator (end of assignments)
+            elif (current._type == TokenType.SEPARATOR and  # Use SEPERATOR to match your token type  
+                current.value == separators.get("SEMICOLON", ";")):
+                self.next_token()  # Move past semicolon
+                break
+            else:
+                self.syntax_error("Expected ',' or ';'", current)
+
+        self.next_token()
+        # If there's only one assignment, return it directly for backward compatibility
+        if len(assignments) == 1:
+            return assignments[0]
+        
+        # For multiple assignments, return a compound assignment node
+        return ASTNode.CompoundVariableAssignment(assignments)
+
 
     def return_statement(self) -> ASTNode:
 
@@ -928,7 +997,7 @@ class ASTParser:
             if current_token.value in Datatypes.user_defined_types:
                 return self.variable_declaration(True)
             elif next_token and next_token._type == TokenType.OPERATOR and next_token.value in assignment_operators.values(): 
-                return self.variable_declaration()
+                return self.variable_assignment()  # Now supports multi-assignment
             elif (next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["LPAREN"]) or \
                 (next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["SEMICOLON"]):
                 # Function call with parentheses or without parentheses
