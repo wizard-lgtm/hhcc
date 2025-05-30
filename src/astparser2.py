@@ -942,8 +942,7 @@ class ASTParser:
         self.syntax_error("Unexpected statement", current_token) 
 
 
-                    
-
+                        
     def parse_extern_declaration(self) -> ASTNode:
         """
         Parse extern declarations for variables, functions, and struct forward declarations.
@@ -951,18 +950,24 @@ class ASTParser:
         """
         self.next_token()  # Consume 'extern'
         current_token = self.current_token()
-
         if not current_token:
             self.syntax_error("Expected statement after 'extern'", current_token)
         
-        # Handle extern variable declarations
-        if current_token._type == TokenType.KEYWORD and current_token.value in Datatypes.all_types():
+        # Handle extern struct declarations
+        if current_token._type == TokenType.KEYWORD and current_token.value == keywords["CLASS"]:
+            # Use the existing class declaration parser
+            # For a forward declaration, this should handle the struct name and semicolon
+            struct_decl = self.class_declaration()
+            return ASTNode.Extern(struct_decl)
+        
+        # Handle extern variable declarations (with explicit type)
+        elif current_token._type == TokenType.KEYWORD and current_token.value in Datatypes.all_types():
             # Check if it's potentially a function
             next_token = self.peek_token()
             if next_token and next_token._type == TokenType.LITERAL:
                 peek_token_2 = self.peek_token(2)
                 if peek_token_2 and peek_token_2.value == separators["LPAREN"]:
-                    # It's a function declaration
+                    # It's a function declaration with explicit return type
                     func_decl = self.function_declaration()
                     return ASTNode.Extern(func_decl)
                 else:
@@ -970,15 +975,18 @@ class ASTParser:
                     var_decl = self.variable_declaration(user_typed=True)
                     return ASTNode.Extern(var_decl)
         
-        # Handle extern struct declarations
-        elif current_token._type == TokenType.KEYWORD and current_token.value == keywords["STRUCT"]:
-            # Use the existing class declaration parser
-            # For a forward declaration, this should handle the struct name and semicolon
-            struct_decl = self.class_declaration()
-            return ASTNode.Extern(struct_decl)
+        # Handle extern function declarations without explicit return type
+        elif current_token._type == TokenType.LITERAL:
+            # Check if this looks like a function (identifier followed by parenthesis)
+            next_token = self.peek_token()
+            if next_token and next_token.value == separators["LPAREN"]:
+                self.index -= 1 # Move back to the function name token
+                func_decl = self.function_declaration()
+                return ASTNode.Extern(func_decl)
         
         # If we reach here, it's an error
-        self.syntax_error("Expected type or 'struct' after 'extern'", self.current_token())        
+        self.syntax_error("Expected type, 'struct', or function name after 'extern'", self.current_token())
+    
 
     def variable_decrement(self):
         node =  ASTNode.VariableDecrement(self.current_token().value)
