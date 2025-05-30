@@ -127,7 +127,11 @@ class Linker:
         obj_file = os.path.splitext(ir_file)[0] + ".o"
         
         # Use llc to compile LLVM IR to an object file
-        cmd = [self.llc, "-filetype=obj", ir_file, "-o", obj_file]
+        cmd = [self.llc, "-filetype=obj", "-relocation-model=pic", ir_file, "-o", obj_file]
+
+        if self.compiler.target and self.compiler.target.triple:
+            cmd.extend(["-mtriple", self.compiler.target.triple])
+
         
         if self.compiler.target and self.compiler.target.triple:
             cmd.extend(["-mtriple", self.compiler.target.triple])
@@ -176,6 +180,9 @@ class Linker:
         # If using clang as linker
         if self.linker == self.clang:
             cmd = [self.linker]
+
+            cmd.extend(["-fno-pie", "-no-pie"])  
+
             
             # Add object files
             cmd.extend(self.object_files)

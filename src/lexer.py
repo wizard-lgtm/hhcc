@@ -324,6 +324,75 @@ class Lexer:
 
         self.type_map = {k: v["type"] for k, v in self.type_info.items()}
 
+    def _handle_string_literal(self, cursor, line, column):
+        """Handle regular string literals like "hello world" """
+        start = cursor
+        cursor += 1  # Skip opening quote
+        
+        value = ""
+        while cursor < len(self.source_code):
+            current_char = self.source_code[cursor]
+            
+            if current_char == '"':
+                # End of string
+                cursor += 1  # Skip closing quote
+                break
+            elif current_char == '\\' and cursor + 1 < len(self.source_code):
+                # Handle escape sequences
+                cursor += 1
+                next_char = self.source_code[cursor]
+                if next_char == 'n':
+                    value += '\n'
+                elif next_char == 't':
+                    value += '\t'
+                elif next_char == 'r':
+                    value += '\r'
+                elif next_char == '\\':
+                    value += '\\'
+                elif next_char == '"':
+                    value += '"'
+                elif next_char == '0':
+                    value += '\0'
+                else:
+                    # Unknown escape sequence, just add both characters
+                    value += '\\' + next_char
+                cursor += 1
+            else:
+                value += current_char
+                cursor += 1
+        
+        # Return the string content without quotes, cursor position, and token
+        token = Token(TokenType.LITERAL, f'"{value}"', line, column)
+        return token, cursor
+
+    def _handle_raw_string_literal(self, cursor, line, column):
+        """Handle raw string literals like R"(content)" """
+        start = cursor
+        cursor += 2  # Skip 'R"'
+        
+        # Find the opening delimiter
+        delimiter_start = cursor
+        if cursor < len(self.source_code) and self.source_code[cursor] == '(':
+            cursor += 1  # Skip '('
+            
+            # Find the content until the closing pattern
+            value = ""
+            while cursor < len(self.source_code):
+                if (cursor + 1 < len(self.source_code) and 
+                    self.source_code[cursor:cursor + 2] == ')"'):
+                    cursor += 2  # Skip ')"'
+                    break
+                else:
+                    value += self.source_code[cursor]
+                    cursor += 1
+            
+            # Return the raw string content, cursor position, and token
+            token = Token(TokenType.LITERAL, f'R"({value})"', line, column)
+            return token, cursor
+        else:
+            # Malformed raw string, treat as regular tokens
+            return None, start
+
     def tokenize(self):
         source_code = self.source_code
         tokens = []
@@ -344,8 +413,27 @@ class Lexer:
                 cursor += 1
                 continue
 
+            # Handle Raw String Literals (R"(...)")
+            if (cursor + 1 < len(source_code) and 
+                source_code[cursor:cursor + 2] == 'R"'):
+                token, new_cursor = self._handle_raw_string_literal(cursor, line, column)
+                if token:
+                    tokens.append(token)
+                    column += new_cursor - cursor
+                    cursor = new_cursor
+                    continue
+                # If raw string parsing failed, fall through to normal processing
+
+            # Handle Regular String Literals
+            elif current_chr == '"':
+                token, new_cursor = self._handle_string_literal(cursor, line, column)
+                tokens.append(token)
+                column += new_cursor - cursor
+                cursor = new_cursor
+                continue
+
             # Handle Directives (they start with #)
-            if current_chr == '#':
+            elif current_chr == '#':
                 start = cursor
                 # Find the directive name
                 directive_start = cursor
@@ -370,7 +458,7 @@ class Lexer:
                 continue
 
             # Identifiers and Keywords
-            if current_chr.isalpha() or current_chr == "_":  # Start of an identifier/keyword
+            elif current_chr.isalpha() or current_chr == "_":  # Start of an identifier/keyword
                 start = cursor
                 while cursor < len(source_code) and (source_code[cursor].isalnum() or source_code[cursor] == "_"):
                     cursor += 1
@@ -447,41 +535,40 @@ class Lexer:
                 column += cursor - start
                 continue  # Avoid incrementing cursor again
 
-            # Handle Operators
-            for operator_name, operator_value in sorted(operators.items(), key=lambda x: -len(x[1])):  # Match longest first
-                if source_code[cursor:cursor + len(operator_value)] == operator_value:
-                    token = Token(TokenType.OPERATOR, operator_value, line, column)
-                    tokens.append(token)
-                    cursor += len(operator_value)
-                    column += len(operator_value)
-                    break
-                
-            # Handle ellipsis first
-            if source_code[cursor:cursor + 3] == separators["THREEDOTS"]:
+            # Handle ellipsis first (before other operators)
+            elif source_code[cursor:cursor + 3] == separators["THREEDOTS"]:
                 token = Token(TokenType.OPERATOR, separators["THREEDOTS"], line, column)
                 tokens.append(token)
                 cursor += 3
                 column += 3
+                continue
 
             # Handle Operators
             else:
+                operator_found = False
                 for operator_name, operator_value in sorted(operators.items(), key=lambda x: -len(x[1])):  # Match longest first
                     if source_code[cursor:cursor + len(operator_value)] == operator_value:
                         token = Token(TokenType.OPERATOR, operator_value, line, column)
                         tokens.append(token)
                         cursor += len(operator_value)
                         column += len(operator_value)
+                        operator_found = True
                         break
-                else:
+                
+                if not operator_found:
                     # Handle Separators
+                    separator_found = False
                     for separator_name, separator_value in separators.items():
                         if source_code[cursor:cursor + len(separator_value)] == separator_value:
                             token = Token(TokenType.SEPARATOR, separator_value, line, column)
                             tokens.append(token)
                             cursor += len(separator_value)
                             column += len(separator_value)
+                            separator_found = True
                             break
-                    else:
+                    
+                    if not separator_found:
+                        # Unknown character, skip it
                         cursor += 1
                         column += 1
 
