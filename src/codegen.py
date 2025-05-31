@@ -274,6 +274,7 @@ class Codegen:
             ASTNode.Extern: self.handle_extern,
             ASTNode.CompoundVariableAssignment: self.compound_variable_assignment,
             ASTNode.CompoundVariableDeclaration: self.compound_variable_declaration,
+            ASTNode.InlineAsm: self.handle_inlineasm,
         }
 
         # Define correct LLVM types with appropriate signedness
@@ -450,20 +451,31 @@ class Codegen:
         name = node.name
         return_type = Datatypes.to_llvm_type(node.return_type)
 
-        node_params: List[ASTNode.VariableDeclaration] = node.parameters
+        node_params: List[ASTNode.VariableDeclaration] = node.parameters if node.parameters else []
         llvm_params = []
         param_types = []
-
+        
         # Parse args
         for param in node_params:
             if param.is_user_typed:
                 print("NOT IMPLEMENTED! user typed parameters")
+                continue
+                
+            # Handle pointer parameters
             if param.is_pointer:
-                print("NOT IMPLEMENTED, function pointer types")
-            
-            param_type = self.type_map[param.var_type]
-            llvm_params.append(param_type)
-            param_types.append(param.var_type)
+                base_type = self.type_map[param.var_type]
+                # Create pointer type with the specified pointer level
+                pointer_level = getattr(param, 'pointer_level', 1)  # Default to 1 if not specified
+                param_type = base_type
+                for _ in range(pointer_level):
+                    param_type = param_type.as_pointer()
+                llvm_params.append(param_type)
+                param_types.append(param.var_type)  # Store the base type for symbol table
+            else:
+                # Regular non-pointer parameter
+                param_type = self.type_map[param.var_type]
+                llvm_params.append(param_type)
+                param_types.append(param.var_type)
         
         # Create the function type and function
         func_type = ir.FunctionType(return_type, llvm_params)
@@ -493,20 +505,33 @@ class Codegen:
             
             # Define function parameters in the symbol table
             for i, (param, llvm_param) in enumerate(zip(node_params, func.args)):
-                # Allocate space for the parameter
-                param_ptr = local_builder.alloca(llvm_param.type, name=f"{param.name}_param")
-                local_builder.store(llvm_param, param_ptr)
+                # For pointer parameters, we don't need to alloca - they're already pointers
+                if param.is_pointer:
+                    # Store the pointer parameter directly
+                    param_symbol = Symbol(
+                        name=param.name,
+                        kind=SymbolKind.PARAMETER,
+                        ast_node=param,
+                        data_type=param.var_type,
+                        llvm_type=llvm_param.type,
+                        llvm_value=llvm_param,  # Use the parameter directly, it's already a pointer
+                        scope_level=self.symbol_table.current_scope_level
+                    )
+                else:
+                    # For non-pointer parameters, allocate space and store the value
+                    param_ptr = local_builder.alloca(llvm_param.type, name=f"{param.name}_param")
+                    local_builder.store(llvm_param, param_ptr)
+                    
+                    param_symbol = Symbol(
+                        name=param.name,
+                        kind=SymbolKind.PARAMETER,
+                        ast_node=param,
+                        data_type=param.var_type,
+                        llvm_type=llvm_param.type,
+                        llvm_value=param_ptr,
+                        scope_level=self.symbol_table.current_scope_level
+                    )
                 
-                # Add parameter to symbol table
-                param_symbol = Symbol(
-                    name=param.name,
-                    kind=SymbolKind.PARAMETER,
-                    ast_node=param,
-                    data_type=param.var_type,
-                    llvm_type=llvm_param.type,
-                    llvm_value=param_ptr,
-                    scope_level=self.symbol_table.current_scope_level
-                )
                 self.symbol_table.define(param_symbol)
             
             # Process the function body
@@ -1310,6 +1335,8 @@ class Codegen:
         # Enter a new scope for this block
         self.symbol_table.enter_scope()
         
+        self.builder = builder
+        
         # Process each statement in the block
         for stmt in node.nodes:
             self.process_node(stmt, builder=builder, **kwargs)
@@ -2010,3 +2037,141 @@ class Codegen:
         
         # Return the list of created variables (or the first one for compatibility)
         return created_vars[0] if created_vars else None
+    def handle_inlineasm(self, node: ASTNode.InlineAsm, **kwargs):
+        """Handle inline assembly statements."""
+
+        def parse_constraint(constraint_obj):
+            """Parse constraint object - handles both string and dict formats"""
+            if isinstance(constraint_obj, str):
+                parts = constraint_obj.split('(')
+                if len(parts) != 2:
+                    raise ValueError(f"Invalid constraint format: {constraint_obj}")
+                constraint = parts[0].strip().strip('"\'')
+                variable = parts[1].strip().rstrip(')')
+                return constraint, variable
+            elif isinstance(constraint_obj, dict):
+                constraint = constraint_obj.get('constraint', constraint_obj.get('type', ''))
+                variable = constraint_obj.get('variable', constraint_obj.get('name', ''))
+                return constraint, variable
+            else:
+                raise ValueError(f"Unsupported constraint format: {type(constraint_obj)}")
+
+        # Process output constraints
+        output_variables = []
+        output_types = []
+        output_constraint_strings = []
+
+        for output_constraint in node.output_constraints:
+            constraint, var_name = parse_constraint(output_constraint)
+            
+            symbol = self.symbol_table.lookup(var_name)
+            if not symbol:
+                raise ValueError(f"Undefined variable in inline assembly output: {var_name}")
+
+            output_variables.append(symbol.llvm_value)
+            
+            if hasattr(symbol.llvm_value, 'type') and isinstance(symbol.llvm_value.type, ir.PointerType):
+                output_types.append(symbol.llvm_value.type.pointee)
+            else:
+                output_types.append(symbol.llvm_value.type)
+            
+            # Keep output constraints as-is (with = prefix)
+            clean_constraint = constraint.strip()
+            if not clean_constraint.startswith('='):
+                clean_constraint = '=' + clean_constraint
+            output_constraint_strings.append(clean_constraint)
+
+        # Process input constraints
+        input_operands = []
+        input_constraint_strings = []
+        
+        for input_constraint in node.input_constraints:
+            constraint, var_name = parse_constraint(input_constraint)
+            
+            symbol = self.symbol_table.lookup(var_name)
+            if not symbol:
+                raise ValueError(f"Undefined variable in inline assembly input: {var_name}")
+
+            # Get the actual value to pass as input
+            if hasattr(symbol.llvm_value, 'type') and isinstance(symbol.llvm_value.type, ir.PointerType):
+                loaded_value = self.builder.load(symbol.llvm_value)
+                input_operands.append(loaded_value)
+            else:
+                input_operands.append(symbol.llvm_value)
+            
+            # Convert constraint to proper LLVM format
+            clean_constraint = constraint.strip().lstrip('=')
+            
+            # Map single-letter constraints to register constraints
+            constraint_map = {
+                'D': '{rdi}',
+                'S': '{rsi}', 
+                'd': '{rdx}',
+                'a': '{rax}',
+                'b': '{rbx}',
+                'c': '{rcx}',
+                'r': 'r',  # any general purpose register
+                'm': 'm',  # memory operand
+            }
+            
+            mapped_constraint = constraint_map.get(clean_constraint, clean_constraint)
+            input_constraint_strings.append(mapped_constraint)
+
+        # Build constraint string
+        all_constraints = output_constraint_strings + input_constraint_strings
+        
+        # Add clobber constraints
+        if node.clobber_list:
+            clobber_constraints = [f"~{{{clobber}}}" for clobber in node.clobber_list]
+            all_constraints.extend(clobber_constraints)
+        
+        llvm_constraints = ",".join(all_constraints)
+
+        # Handle special case for syscalls - modify assembly code to set rax
+        assembly_code = node.assembly_code
+        if "syscall" in assembly_code.lower():
+            # For syscall, we need to set rax to the syscall number first
+            # Check if we have an input that should go to rax
+            has_rax_input = any('a' in constraint for constraint in input_constraint_strings)
+            
+            if not has_rax_input and output_constraint_strings and '=a' in output_constraint_strings[0]:
+                # This is likely a syscall where we need to set the syscall number
+                # Modify the assembly to include setting rax
+                # You might need to adjust this based on your specific syscall needs
+                assembly_code = "mov $1, %rax\\n\\t" + assembly_code
+
+        # Determine return type
+        if output_types:
+            if len(output_types) == 1:
+                return_type = output_types[0]
+            else:
+                return_type = ir.LiteralStructType(output_types)
+        else:
+            return_type = ir.VoidType()
+
+        # Create function type and inline assembly
+        func_type = ir.FunctionType(return_type, [op.type for op in input_operands])
+        
+        asm_func = ir.InlineAsm(
+            func_type,
+            assembly_code,
+            llvm_constraints,
+            side_effect=node.is_volatile,
+        )
+
+        # Call the inline assembly
+        if input_operands:
+            result = self.builder.call(asm_func, input_operands)
+        else:
+            result = self.builder.call(asm_func, [])
+
+        # Store results in output variables
+        if len(output_variables) == 1:
+            if not isinstance(return_type, ir.VoidType):
+                self.builder.store(result, output_variables[0])
+        elif len(output_variables) > 1:
+            for i, output_var in enumerate(output_variables):
+                extracted_value = self.builder.extract_value(result, i)
+                self.builder.store(extracted_value, output_var)
+
+        return result if not isinstance(return_type, ir.VoidType) else None
