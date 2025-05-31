@@ -272,7 +272,8 @@ class Codegen:
             ASTNode.VariableIncrement: self.handle_variable_increment,
             ASTNode.VariableDecrement: self.handle_variable_decrement,
             ASTNode.Extern: self.handle_extern,
-            
+            ASTNode.CompoundVariableAssignment: self.compound_variable_assignment,
+            ASTNode.CompoundVariableDeclaration: self.compound_variable_declaration,
         }
 
         # Define correct LLVM types with appropriate signedness
@@ -1138,6 +1139,17 @@ class Codegen:
                 raise ValueError(f"Unsupported literal type: {type(node.value)}")
 
         try:
+            # Handle NULL first (before integer handling)
+            if isinstance(node.value, str) and (node.value.upper() == "NULL" or node.value == "0"):
+                if isinstance(var_type, ir.PointerType):
+                    return ir.Constant(var_type, None)
+                elif isinstance(var_type, ir.IntType):
+                    return ir.Constant(var_type, 0)
+            
+            # Handle numeric zero for pointers
+            if isinstance(node.value, (int, float)) and node.value == 0 and isinstance(var_type, ir.PointerType):
+                return ir.Constant(var_type, None)
+            
             # Handle string literals
             if is_string_literal:
                 # For pointer assignment, we want to return the string address
@@ -1156,13 +1168,6 @@ class Codegen:
                 elif isinstance(node.value, (int, float)):
                     # Convert numeric value to boolean (0 = false, non-zero = true)
                     return ir.Constant(var_type, 1 if node.value != 0 else 0)
-
-            # Handle NULL (zero) pointer
-            if isinstance(var_type, ir.PointerType) and (
-                (isinstance(node.value, str) and (node.value == "0" or node.value.upper() == "NULL")) or
-                (isinstance(node.value, (int, float)) and node.value == 0)
-            ):
-                return ir.Constant(var_type, None)
 
             # Integer literals
             if isinstance(var_type, ir.IntType):
@@ -1200,7 +1205,6 @@ class Codegen:
             if debug:
                 print(f"Error handling literal: {e}")
             raise ValueError(f"Invalid literal or undefined variable: '{node.value}'")
-        
     def _expression_parse_integer_literal(self, value: str, var_type: ir.IntType):
         val = int(value)
 
@@ -1968,3 +1972,41 @@ class Codegen:
         
         # Return the function reference
         return func
+
+    def compound_variable_assignment(self, node: ASTNode.CompoundVariableAssignment, builder: ir.IRBuilder, **kwargs):
+        """Handle compound variable assignment - multiple assignments in one statement."""
+        
+        print(f"Processing compound variable assignment with {len(node.assignments)} assignments")
+        
+        # Process each assignment in the compound assignment
+        for i, assignment_node in enumerate(node.assignments):
+            print(f"  Processing assignment {i+1}: {assignment_node.name}")
+            
+            # Handle each assignment as if it were an individual assignment
+            self.handle_variable_assignment(assignment_node, builder, **kwargs)
+        
+        print(f"Compound assignment completed. Processed {len(node.assignments)} assignments.")
+        
+        # Compound assignments don't return a value
+        return None
+    
+    def compound_variable_declaration(self, node: ASTNode.CompoundVariableDeclaration, builder: ir.IRBuilder, **kwargs):
+        """Handle compound variable declaration - multiple variables of the same type."""
+        
+        print(f"Processing compound variable declaration for type: {node.var_type}")
+        
+        # Store all created variables to return
+        created_vars = []
+        
+        # Process each variable in the compound declaration
+        for var_node in node.variables:
+            print(f"  Processing variable: {var_node.name}, pointer_level: {var_node.pointer_level}")
+            
+            # Handle each variable as if it were an individual declaration
+            var_ptr = self.handle_variable_declaration(var_node, builder, **kwargs)
+            created_vars.append(var_ptr)
+        
+        print(f"Compound declaration completed. Created {len(created_vars)} variables.")
+        
+        # Return the list of created variables (or the first one for compatibility)
+        return created_vars[0] if created_vars else None
