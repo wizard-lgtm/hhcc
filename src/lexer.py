@@ -266,7 +266,9 @@ keywords = {
     "PUBLIC": "public",
     "EXTERN": "extern",
     "TRUE": "true",
-    "FALSE": "false"
+    "FALSE": "false",
+    "VOLATILE": "volatile",  # Used to indicate that a variable may be changed by external factors, such as hardware or other threads.
+
 }
 
 separators = {
