@@ -523,3 +523,62 @@ class ASTNode:
 
         def __repr__(self) -> str:
             return self.print_tree()
+        
+    class CompoundVariableDeclaration:
+        """Handles multiple variable declarations of the same type in one statement"""
+        def __init__(self, var_type: str, variables: list, is_user_typed: bool = False):
+            self.var_type: str = var_type
+            self.variables: list = variables  # List of VariableDeclaration objects
+            self.is_user_typed: bool = is_user_typed
+        
+        def print_tree(self, prefix: str = "") -> str:
+            result = f"{prefix}CompoundVariableDeclaration ({self.var_type})\n"
+            for i, var in enumerate(self.variables):
+                is_last = i == len(self.variables) - 1
+                connector = "└──" if is_last else "├──"
+                next_prefix = prefix + ("    " if is_last else "│   ")
+                result += f"{prefix}{connector} {var.name}"
+                
+                # Add pointer info if applicable
+                if var.pointer_level > 0:
+                    result += f" {'*' * var.pointer_level}"
+                
+                # Add value info if assigned
+                if var.value is not None:
+                    if hasattr(var.value, 'print_tree'):
+                        result += f" = {var.value.print_tree('')}"
+                    else:
+                        result += f" = {var.value}"
+                
+                result += "\n"
+            
+            return result
+        
+        def __repr__(self) -> str:
+            return self.print_tree()
+
+    class CompoundVariableAssignment:
+        """Handles multiple variable assignments in one statement"""
+        def __init__(self, assignments: list):
+            self.assignments: list = assignments  # List of VariableAssignment objects
+        
+        def print_tree(self, prefix: str = "") -> str:
+            result = f"{prefix}CompoundVariableAssignment\n"
+            for i, assignment in enumerate(self.assignments):
+                is_last = i == len(self.assignments) - 1
+                connector = "└──" if is_last else "├──"
+                next_prefix = prefix + ("    " if is_last else "│   ")
+                result += f"{prefix}{connector} {assignment.name} = "
+                
+                # Add value info
+                if hasattr(assignment.value, 'print_tree'):
+                    result += f"{assignment.value.print_tree('')}"
+                else:
+                    result += f"{assignment.value}"
+                
+                result += "\n"
+            
+            return result
+        
+        def __repr__(self) -> str:
+            return self.print_tree()
