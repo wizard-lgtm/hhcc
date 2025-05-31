@@ -58,23 +58,23 @@ class ASTParser:
 
 
     def variable_declaration(self, user_typed=False):
- 
         var_type = self.current_token()
-        is_pointer = False
-    
-        peek_token = self.peek_token()
-        # Check the next token is a pointer
-        if peek_token and peek_token._type == TokenType.OPERATOR and peek_token.value == operators["POINTER"]:
-            self.next_token()
-            is_pointer = True
+        pointer_level = 0
         
+        # Count consecutive pointer operators
+        while True:
+            peek_token = self.peek_token()
+            if peek_token and peek_token._type == TokenType.OPERATOR and peek_token.value == operators["POINTER"]:
+                self.next_token()  # Consume the pointer operator
+                pointer_level += 1
+            else:
+                break
         
         # Move to variable name
         var_name = self.next_token()
         if not (var_name or var_name._type != TokenType.LITERAL):
             self.syntax_error("Expected variable name", var_name)
-
-
+        
         # Check if this is an array declaration by looking ahead
         peek_token = self.peek_token()
         if peek_token and peek_token.value == separators["LBRACKET"]:
@@ -83,14 +83,13 @@ class ASTParser:
             return self.array_declaration(var_type.value, var_name.value, user_typed)
         
         # Regular variable declaration continues...
-        node = ASTNode.VariableDeclaration(var_type.value, var_name.value, None, user_typed, is_pointer)
+        node = ASTNode.VariableDeclaration(var_type.value, var_name.value, None, user_typed, pointer_level)
         
         # Move to next token to check assignment or semicolon
         next_token = self.next_token()
         
         # Check for assignment
         if next_token and next_token.value == operators["ASSIGN"]:
-
             # Move to value and parse expression
             self.next_token()  # Move past '='
             node.value = self.parse_expression()
@@ -877,17 +876,30 @@ class ASTParser:
             
             # Handle function declarations and definitions
             if current_token.value in Datatypes.all_types():
-                # Check for pointer type first
-                if next_token._type == TokenType.OPERATOR and next_token.value == operators["POINTER"]:
-                    # Look ahead one more token to see the variable name
-                    peek_token_2 = self.peek_token(2)
-                    if peek_token_2 and peek_token_2._type == TokenType.LITERAL:
-                        # Check if it's a function (look for opening parenthesis after variable name)
-                        peek_token_3 = self.peek_token(3)
-                        if peek_token_3 and peek_token_3.value == separators["LPAREN"]:
-                            return self.function_declaration()
-                        else:
-                            return self.variable_declaration()
+                # Count consecutive pointer operators to handle multi-level pointers
+                pointer_level = 0
+                lookahead_pos = 1
+                
+                # Count all consecutive pointer operators
+                while True:
+                    peek_token = self.peek_token(lookahead_pos)
+                    if peek_token and peek_token._type == TokenType.OPERATOR and peek_token.value == operators["POINTER"]:
+                        pointer_level += 1
+                        lookahead_pos += 1
+                    else:
+                        break
+                
+                # Now check what comes after all the pointer operators
+                name_token = self.peek_token(lookahead_pos)
+                if name_token and name_token._type == TokenType.LITERAL:
+                    # Check if it's a function (look for opening parenthesis after variable name)
+                    next_after_name = self.peek_token(lookahead_pos + 1)
+                    if next_after_name and next_after_name.value == separators["LPAREN"]:
+                        return self.function_declaration()
+                    else:
+                        return self.variable_declaration()
+                
+                # Fallback: if we only have one token ahead and it's a literal, check for function
                 elif next_token._type == TokenType.LITERAL:
                     # Check if it's potentially a function
                     peek_token_2 = self.peek_token(2)
@@ -939,9 +951,7 @@ class ASTParser:
         elif self.current_token()._type == TokenType.LITERAL and self.peek_token(1).value == operators["decrement"]:
             return self.variable_decrement()
         
-        self.syntax_error("Unexpected statement", current_token) 
-
-
+        self.syntax_error("Unexpected statement", current_token)
                         
     def parse_extern_declaration(self) -> ASTNode:
         """
