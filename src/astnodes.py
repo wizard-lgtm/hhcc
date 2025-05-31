@@ -582,3 +582,26 @@ class ASTNode:
         
         def __repr__(self) -> str:
             return self.print_tree()
+        
+        
+    class InlineAsm:
+        def __init__(self, assembly_code: str, output_constraints: List[str] = None,
+                    input_constraints: List[str] = None, clobber_list: List[str] = None,
+                    is_volatile: bool = False):
+            self.assembly_code: str = assembly_code
+            self.output_constraints: List[str] = output_constraints or []
+            self.input_constraints: List[str] = input_constraints or []
+            self.clobber_list: List[str] = clobber_list or []
+            self.is_volatile: bool = is_volatile
+        
+        def print_tree(self, prefix: str = "") -> str:
+            result = f"{prefix}InlineAsm\n"
+            result += f"{prefix}├── volatile: {self.is_volatile}\n"
+            result += f"{prefix}├── assembly_code: {repr(self.assembly_code)}\n"
+            result += f"{prefix}├── output_constraints: {self.output_constraints}\n"
+            result += f"{prefix}├── input_constraints: {self.input_constraints}\n"
+            result += f"{prefix}└── clobber_list: {self.clobber_list}\n"
+            return result
+        
+        def __repr__(self) -> str:
+            return self.print_tree()
