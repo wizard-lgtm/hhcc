@@ -980,6 +980,12 @@ class ASTParser:
         
         elif current_token._type == TokenType.LITERAL:
             next_token = self.peek_token()
+            
+            if next_token and next_token._type == TokenType.OPERATOR:
+                if next_token.value == operators["increment"]:
+                    return self.variable_increment()
+                elif next_token.value == operators["decrement"]:
+                    return self.variable_decrement()
             if current_token.value in Datatypes.user_defined_types:
                 # User-defined type variable declaration - now handles compound declarations
                 return self.variable_declaration(True)
@@ -990,7 +996,7 @@ class ASTParser:
                 
                 # For now, treat single assignments as declarations (maintaining existing behavior)
                 # This preserves your current logic
-                return self.variable_declaration()
+                return self.variable_assignment()
             elif (next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["LPAREN"]) or \
                 (next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["SEMICOLON"]):
                 # Function call with parentheses or without parentheses
@@ -1098,7 +1104,20 @@ class ASTParser:
         )
         
         return ASTNode.VariableAssignment(f"{struct_name}.{field_name.value}", value)
-        
+    
+    def variable_increment(self):
+        var_name = self.current_token().value
+        self.next_token()  # Move past variable name
+        self.next_token()  # Move past '++'
+        self.check_semicolon();
+        return ASTNode.VariableIncrement(var_name)
+
+    def variable_decrement(self):
+        var_name = self.current_token().value
+        self.next_token()  # Move past variable name
+        self.next_token()  # Move past '--'
+        self.check_semicolon();
+        return ASTNode.VariableDecrement(var_name)
 
     def parse(self):
         
