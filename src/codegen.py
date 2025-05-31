@@ -1314,80 +1314,103 @@ class Codegen:
         self.symbol_table.exit_scope()
 
     def handle_variable_declaration(self, node: ASTNode.VariableDeclaration, builder: ir.IRBuilder, **kwargs):
-        """Handle variable declaration with the new symbol table."""
+        """Handle variable declaration with multi-level pointer support."""
         
-        # Determine if this is a pointer type
-        is_pointer = False
+        # Extract base type and pointer level
         base_type_name = node.var_type
+        pointer_level = node.pointer_level
         
-        # Check for pointer syntax in type name
-        if node.var_type.endswith('*'):
-            is_pointer = True
-            base_type_name = node.var_type[:-1]  # Remove the asterisk
+        # Handle legacy string-based pointer detection for backward compatibility
+        if base_type_name.endswith('*'):
+            # Count asterisks at the end
+            asterisk_count = 0
+            temp_type = base_type_name
+            while temp_type.endswith('*'):
+                asterisk_count += 1
+                temp_type = temp_type[:-1]
+            
+            base_type_name = temp_type
+            pointer_level = max(pointer_level, asterisk_count)
         
-        # Also check the node's is_pointer attribute if it exists
-        if hasattr(node, 'is_pointer') and node.is_pointer:
-            is_pointer = True
-        
-        print(f"Variable declaration: {node.name}, type: {node.var_type}, is_pointer: {is_pointer}")
+        print(f"Variable declaration: {node.name}, base_type: {base_type_name}, pointer_level: {pointer_level}")
         
         # Get the base type
         base_type = Datatypes.to_llvm_type(base_type_name)
         
-        # Determine the variable's LLVM type
-        if is_pointer:
-            # For pointer variables, we allocate space for a pointer to the base type
-            var_type = ir.PointerType(base_type)
-        else:
-            # For regular variables, we allocate space for the base type itself
-            var_type = base_type
-            
-        # Allocate space for the variable (this creates a pointer to var_type)
-        var = builder.alloca(var_type, name=node.name)
+        # Build the final type by wrapping with pointers
+        final_type = base_type
+        for _ in range(pointer_level):
+            final_type = ir.PointerType(final_type)
+        
+        # Allocate space for the variable (this creates a pointer to final_type)
+        var = builder.alloca(final_type, name=node.name)
         
         # Create and store the symbol in our table
         symbol = create_variable_symbol(
             name=node.name,
             ast_node=node,
             data_type=node.var_type,
-            llvm_type=var_type,
+            llvm_type=final_type,
             llvm_value=var,
-            is_pointer=is_pointer
+            is_pointer=(pointer_level > 0)
         )
         self.symbol_table.define(symbol)
         
         # Handle initial value if present
         if node.value:
-            print(f"Processing initial value for {node.name}, is_pointer: {is_pointer}")
+            print(f"Processing initial value for {node.name}, pointer_level: {pointer_level}")
             
-            # For pointer variables, we need to handle the value differently
-            if is_pointer:
-                # The value should be something that can be stored in a pointer
-                # (like a string literal address, another pointer, or NULL)
-                value = self.handle_expression(node.value, builder, base_type, is_pointer=True)
+            if pointer_level > 0:
+                # For pointer variables, handle the value appropriately
+                value = self.handle_expression(node.value, builder, base_type, is_pointer=True, pointer_level=pointer_level)
             else:
                 # For regular variables, handle normally
-                value = self.handle_expression(node.value, builder, var_type, is_pointer=False)
+                value = self.handle_expression(node.value, builder, final_type, is_pointer=False)
                 
             if not value:
-                if is_pointer:
+                if pointer_level > 0:
                     # Initialize to null pointer
-                    value = ir.Constant(var_type, None)
+                    value = ir.Constant(final_type, None)
                 else:
                     # Default to zero for non-pointer types
-                    value = ir.Constant(var_type, 0)
+                    value = ir.Constant(final_type, 0)
             else:
                 # Apply proper type casting before storing
-                value = self._cast_value(value, var_type, builder)
+                value = self._cast_value(value, final_type, builder)
                     
             builder.store(value, var)
         else:
             # Initialize pointers to null by default if no value is provided
-            if is_pointer:
-                null_ptr = ir.Constant(var_type, None)
+            if pointer_level > 0:
+                null_ptr = ir.Constant(final_type, None)
                 builder.store(null_ptr, var)
         
         return var  # Return the variable pointer
+    
+    # Helper function to get pointer level from type string (optional utility)
+    def get_pointer_level_from_type(type_string: str) -> tuple[str, int]:
+        """
+        Extract base type and pointer level from a type string.
+        
+        Args:
+            type_string: Type string like "U8", "U8*", "U8**", etc.
+        
+        Returns:
+            Tuple of (base_type, pointer_level)
+        
+        Examples:
+            "U8" -> ("U8", 0)
+            "U8*" -> ("U8", 1)
+            "U8**" -> ("U8", 2)
+        """
+        pointer_level = 0
+        base_type = type_string
+        
+        while base_type.endswith('*'):
+            pointer_level += 1
+            base_type = base_type[:-1]
+        
+        return base_type, pointer_level
 
     def get_struct_field_ptr(self, struct_name: str, field_name: str, builder: ir.IRBuilder):
         """
@@ -1664,6 +1687,8 @@ class Codegen:
         """Handle function call with the new symbol table."""
         # Debug the AST node structure to help understand its format
 
+
+        print("FUNCTION MAP", self.function_map)
         
         # Handle either dedicated FunctionCall nodes or ExpressionNode with FUNCTION_CALL type
         if isinstance(node, ASTNode.FunctionCall):
