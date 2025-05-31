@@ -908,7 +908,6 @@ class ASTParser:
         
         return ASTNode.ArrayInitialization(elements)
 
-    # Complete parse_statement function with compound variable support
     def parse_statement(self, inside_block: bool = False) -> ASTNode:
         current_token = self.current_token()
         if not current_token:
@@ -917,6 +916,10 @@ class ASTParser:
         # Handle extern declarations
         if current_token._type == TokenType.KEYWORD and current_token.value == keywords["EXTERN"]:
             return self.parse_extern_declaration()
+        
+        # Handle inline assembly
+        if current_token._type == TokenType.KEYWORD and current_token.value == keywords["ASM"]:
+            return self.inline_assembly()
         
         if current_token._type == TokenType.KEYWORD:
             next_token = self.peek_token()
@@ -1118,6 +1121,192 @@ class ASTParser:
         self.next_token()  # Move past '--'
         self.check_semicolon();
         return ASTNode.VariableDecrement(var_name)
+    
+    
+    def inline_assembly(self):
+        """
+        Parse GCC-style inline assembly statements
+        Syntax: asm [volatile] ( assembly_template : output_operands : input_operands : clobbers );
+        """
+        self.next_token()  # Consume 'asm'
+        # 'asm' keyword should already be consumed by parse_statement
+        is_volatile = False
+
+        # Check for optional 'volatile' keyword
+        if (self.current_token()._type == TokenType.KEYWORD and 
+            self.current_token().value == keywords.get("VOLATILE")):
+            print("VOLATILE")
+            is_volatile = True
+            self.next_token()
+
+        # Expect opening parenthesis
+        if (not self.current_token() or 
+            self.current_token().value != separators["LPAREN"]):
+            self.syntax_error("Expected '(' after 'asm'", self.current_token())
+
+        self.next_token()  # Consume '('
+
+        # Parse assembly template (required)
+        assembly_code = self.parse_assembly_template()
+
+        # Initialize constraint lists
+        output_constraints = []
+        input_constraints = []
+        clobber_list = []
+
+        # Check for output constraints (optional)
+        if (self.current_token() and 
+            self.current_token().value == separators["COLON"]):
+            self.next_token()  # Consume ':'
+            output_constraints = self.parse_constraint_list()
+
+            # Check for input constraints (optional)
+            if (self.current_token() and 
+                self.current_token().value == separators["COLON"]):
+                self.next_token()  # Consume ':'
+                input_constraints = self.parse_constraint_list()
+
+                # Check for clobber list (optional)
+                if (self.current_token() and 
+                    self.current_token().value == separators["COLON"]):
+                    self.next_token()  # Consume ':'
+                    clobber_list = self.parse_clobber_list()
+
+        # Expect closing parenthesis
+        if (not self.current_token() or 
+            self.current_token().value != separators["RPAREN"]):
+            self.syntax_error("Expected ')' to close inline assembly", self.current_token())
+
+        self.next_token()  # Consume ')'
+
+        # Check for semicolon
+        self.check_semicolon()
+
+        return ASTNode.InlineAsm(
+            assembly_code=assembly_code,
+            output_constraints=output_constraints,
+            input_constraints=input_constraints,
+            clobber_list=clobber_list,
+            is_volatile=is_volatile
+        )        
+
+    def parse_assembly_template(self):
+        """
+        Parse the assembly template string, which can be:
+        - A single string literal
+        - Multiple concatenated string literals
+        """
+        assembly_parts = []
+
+        while (self.current_token() and 
+            self.current_token()._type == TokenType.LITERAL):
+            # Remove quotes from string literal
+            string_value = self.current_token().value.strip('"\'')
+            assembly_parts.append(string_value)
+            self.next_token()
+
+        if not assembly_parts:
+            self.syntax_error("Expected assembly template string", self.current_token())
+
+        # Join multiple string literals with newlines (common practice)
+        return '\n'.join(assembly_parts)
+
+    def parse_constraint_list(self):
+        """
+        Parse constraint list for input/output operands
+        Format: "constraint" (variable), "constraint" (variable), ...
+        """
+        constraints = []
+
+        # Handle empty constraint list
+        if (self.current_token() and 
+            self.current_token().value == separators["COLON"]):
+            return constraints
+
+        if (self.current_token() and 
+            self.current_token().value == separators["RPAREN"]):
+            return constraints
+
+        while True:
+            # Parse constraint string
+            if (not self.current_token() or 
+                self.current_token()._type != TokenType.LITERAL):
+                break
+
+            constraint_str = self.current_token().value.strip('"\'')
+            self.next_token()
+
+            # Expect opening parenthesis
+            if (not self.current_token() or 
+                self.current_token().value != separators["LPAREN"]):
+                self.syntax_error("Expected '(' after constraint", self.current_token())
+
+            self.next_token()  # Consume '('
+
+            # Parse variable expression (could be simple variable or more complex)
+            if (not self.current_token() or 
+                self.current_token()._type != TokenType.LITERAL):
+                self.syntax_error("Expected variable name in constraint", self.current_token())
+
+            variable_name = self.current_token().value
+            self.next_token()
+
+            # Expect closing parenthesis
+            if (not self.current_token() or 
+                self.current_token().value != separators["RPAREN"]):
+                self.syntax_error("Expected ')' after variable name", self.current_token())
+
+            self.next_token()  # Consume ')'
+
+            # Store constraint with variable
+            constraints.append({
+                'constraint': constraint_str,
+                'variable': variable_name
+            })
+
+            # Check for comma (more constraints)
+            if (self.current_token() and 
+                self.current_token().value == separators["COMMA"]):
+                self.next_token()  # Consume ','
+                continue
+            else:
+                break
+
+        return constraints
+
+
+    def parse_clobber_list(self):
+        """
+        Parse clobber list (registers that are modified)
+        Format: "register", "register", ...
+        """
+        clobbers = []
+
+        # Handle empty clobber list
+        if (self.current_token() and 
+            self.current_token().value == separators["RPAREN"]):
+            return clobbers
+
+        while True:
+            # Parse clobber string
+            if (not self.current_token() or 
+                self.current_token()._type != TokenType.LITERAL):
+                break
+
+            clobber_str = self.current_token().value.strip('"\'')
+            clobbers.append(clobber_str)
+            self.next_token()
+
+            # Check for comma (more clobbers)
+            if (self.current_token() and 
+                self.current_token().value == separators["COMMA"]):
+                self.next_token()  # Consume ','
+                continue
+            else:
+                break
+
+        return clobbers
+
 
     def parse(self):
         
@@ -1127,3 +1316,4 @@ class ASTParser:
                 self.nodes.append(node)
 
         return self.nodes
+
