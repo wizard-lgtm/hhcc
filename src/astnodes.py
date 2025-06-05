@@ -540,3 +540,43 @@ class ASTNode:
         
         def __repr__(self) -> str:
             return self.print_tree()
+        
+    class CompoundVariableDeclaration:
+        var_type = str
+        declarations: List['ASTNode.VariableDeclaration'] = []
+
+        def __init__(self, var_type: str, declarations: List['ASTNode.VariableDeclaration']):
+            self.var_type = var_type
+            self.declarations = declarations
+
+        def print_tree(self, prefix: str = "") -> str:
+            result = f"{prefix}CompoundVariableDeclaration (type: {self.var_type})\n"
+            if self.declarations:
+                for i, decl in enumerate(self.declarations):
+                    is_last = (i == len(self.declarations) - 1)
+                    child_prefix = prefix + ("└── " if is_last else "├── ")
+                    sub_prefix = prefix + ("    " if is_last else "│   ")
+                    result += f"{child_prefix}{decl.print_tree(sub_prefix)}"
+            else:
+                result += f"{prefix}└── No declarations\n"
+            return result
+
+    class CompoundVariableAssigment:
+        var_type = str
+        assignments: List['ASTNode.VariableAssignment'] = []
+        def __init__(self, var_type: str, assignments: List['ASTNode.VariableAssignment']):
+            self.var_type = var_type
+            self.assignments = assignments
+        def print_tree(self, prefix: str = "") -> str:
+            result = f"{prefix}CompoundVariableAssignment\n"
+            print(f"Type: {self.var_type}")
+            if self.assignments:
+                for i, assign in enumerate(self.assignments):
+                    if i < len(self.assignments) - 1:
+                        result += f"{prefix}├── {assign.print_tree(prefix + '│   ')}"
+                    else:
+                        result += f"{prefix}└── {assign.print_tree(prefix + '    ')}"
+            else:
+                result += f"{prefix}└── No assignments\n"
+            return result
+        pass
