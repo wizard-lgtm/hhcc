@@ -272,6 +272,7 @@ class Codegen:
             ASTNode.VariableIncrement: self.handle_variable_increment,
             ASTNode.VariableDecrement: self.handle_variable_decrement,
             ASTNode.Extern: self.handle_extern,
+            ASTNode.CompoundVariableDeclaration: self.handle_compound_variable_declaration,
             
         }
 
@@ -1943,3 +1944,10 @@ class Codegen:
         
         # Return the function reference
         return func
+    
+    def handle_compound_variable_declaration(self, node: ASTNode.CompoundVariableDeclaration, builder: ir.IRBuilder, **kwargs):
+        """Handle compound variable declarations (like structs or unions)."""
+        # Get the type of the compound variable
+        for declaration in node.declarations:
+            self.handle_variable_declaration(declaration, builder)
+        
