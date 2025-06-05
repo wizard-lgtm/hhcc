@@ -61,6 +61,7 @@ class ASTParser:
  
         var_type = self.current_token()
         is_pointer = False
+        list_of_declarations = []
     
         peek_token = self.peek_token()
         # Check the next token is a pointer
@@ -68,37 +69,57 @@ class ASTParser:
             self.next_token()
             is_pointer = True
         
+        while True: 
         
-        # Move to variable name
-        var_name = self.next_token()
-        if not (var_name or var_name._type != TokenType.LITERAL):
-            self.syntax_error("Expected variable name", var_name)
+            # Move to variable name
+            var_name = self.next_token()
+            if not (var_name or var_name._type != TokenType.LITERAL):
+                self.syntax_error("Expected variable name", var_name)
 
 
-        # Check if this is an array declaration by looking ahead
-        peek_token = self.peek_token()
-        if peek_token and peek_token.value == separators["LBRACKET"]:
-            # Array declaration - let's consume the variable name first
-            self.next_token()  # Consume variable name
-            return self.array_declaration(var_type.value, var_name.value, user_typed)
-        
-        # Regular variable declaration continues...
-        node = ASTNode.VariableDeclaration(var_type.value, var_name.value, None, user_typed, is_pointer)
-        
-        # Move to next token to check assignment or semicolon
-        next_token = self.next_token()
-        
-        # Check for assignment
-        if next_token and next_token.value == operators["ASSIGN"]:
+            # Check if this is an array declaration by looking ahead
+            peek_token = self.peek_token()
+            if peek_token and peek_token.value == separators["LBRACKET"]:
+                # Array declaration - let's consume the variable name first
+                self.next_token()  # Consume variable name
+                return self.array_declaration(var_type.value, var_name.value, user_typed)
+            
+            # Regular variable declaration continues...
+            node = ASTNode.VariableDeclaration(var_type.value, var_name.value, None, user_typed, is_pointer)
+            
+            # Move to next token to check assignment or semicolon
+            next_token = self.next_token()
+            
+            # Check for assignment
+            if next_token and next_token.value == operators["ASSIGN"]:
 
-            # Move to value and parse expression
-            self.next_token()  # Move past '='
-            node.value = self.parse_expression()
+                # Move to value and parse expression
+                self.next_token()  # Move past '='
+                node.value = self.parse_expression()
+
+            
+            # Check semicolon or compound declaration
+            if self.current_token().value == separators["COMMA"]:  # Look ahead to see if we have a semicolon or another declaration
+                list_of_declarations.append(node)  # Add the current declaration to the list
+                continue #  We have another declaration, so we continue parsing 
+                
+            elif self.current_token().value == separators["SEMICOLON"]:
+                list_of_declarations.append(node)
+                # If we have a semicolon, we finish this declaration
+
+                self.next_token() # consume the semicolon
+                break # We have reached the end of this declaration
+            
+            else: 
+                self.syntax_error("Expected ',' or ';' after variable declaration", self.current_token())
         
-        # Check semicolon
-        self.check_semicolon()
-        
-        return node
+        print(list_of_declarations)
+        if len(list_of_declarations) > 1:
+            # If we have multiple declarations, create a block node
+            return ASTNode.CompoundVariableDeclaration(var_type=var_type.value, declarations=list_of_declarations)
+        # If it's a single declaration, return the node
+        else:
+            return node
     def variable_assignment(self):
 
         
