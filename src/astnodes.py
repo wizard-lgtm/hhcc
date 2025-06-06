@@ -562,14 +562,11 @@ class ASTNode:
             return result
 
     class CompoundVariableAssigment:
-        var_type = str
         assignments: List['ASTNode.VariableAssignment'] = []
-        def __init__(self, var_type: str, assignments: List['ASTNode.VariableAssignment']):
-            self.var_type = var_type
+        def __init__(self, assignments: List['ASTNode.VariableAssignment']):
             self.assignments = assignments
         def print_tree(self, prefix: str = "") -> str:
             result = f"{prefix}CompoundVariableAssignment\n"
-            print(f"Type: {self.var_type}")
             if self.assignments:
                 for i, assign in enumerate(self.assignments):
                     if i < len(self.assignments) - 1:
