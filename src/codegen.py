@@ -273,6 +273,7 @@ class Codegen:
             ASTNode.VariableDecrement: self.handle_variable_decrement,
             ASTNode.Extern: self.handle_extern,
             ASTNode.CompoundVariableDeclaration: self.handle_compound_variable_declaration,
+            ASTNode.CompoundVariableAssigment: self.handle_compound_variable_assignment,
             
         }
 
@@ -1087,7 +1088,8 @@ class Codegen:
     def _expression_handle_literal(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
         is_pointer = kwargs.get('is_pointer', False)
         
-        print(f"Handling literal: '{node.value}', target type: {var_type}, is_pointer: {is_pointer}")
+        if self.compiler.debug:
+            print(f"Handling literal: '{node.value}', target type: {var_type}, is_pointer: {is_pointer}")
         
         """
         Handle literal expressions like numbers, booleans, strings, etc.
@@ -1330,7 +1332,8 @@ class Codegen:
         if hasattr(node, 'is_pointer') and node.is_pointer:
             is_pointer = True
         
-        print(f"Variable declaration: {node.name}, type: {node.var_type}, is_pointer: {is_pointer}")
+        if self.compiler.debug:
+            print(f"Variable declaration: {node.name}, type: {node.var_type}, is_pointer: {is_pointer}")
         
         # Get the base type
         base_type = Datatypes.to_llvm_type(base_type_name)
@@ -1359,7 +1362,8 @@ class Codegen:
         
         # Handle initial value if present
         if node.value:
-            print(f"Processing initial value for {node.name}, is_pointer: {is_pointer}")
+            if self.compiler.debug:
+                print(f"Processing initial value for {node.name}, is_pointer: {is_pointer}")
             
             # For pointer variables, we need to handle the value differently
             if is_pointer:
@@ -1950,4 +1954,8 @@ class Codegen:
         # Get the type of the compound variable
         for declaration in node.declarations:
             self.handle_variable_declaration(declaration, builder)
+        
+    def handle_compound_variable_assignment(self, node: ASTNode.CompoundVariableAssigment, builder: ir.IRBuilder, **kwargs):
+        for assignment in node.assignments:
+            self.handle_variable_assignment(assignment, builder)
         
