@@ -30,7 +30,7 @@ class Symbol:
                  llvm_type: Any = None, 
                  llvm_value: Optional[ir.Value] = None, 
                  scope_level: int = 0,
-                 is_pointer: bool = False):
+                 pointer_level: int = 0):
         self.name = name
         self.kind = kind
         self.ast_node = ast_node
@@ -38,12 +38,18 @@ class Symbol:
         self.llvm_type = llvm_type  # The LLVM type
         self.llvm_value = llvm_value  # LLVM value or pointer
         self.scope_level = scope_level
-        self.is_pointer = is_pointer
+        self.pointer_level = pointer_level  # 0 = not a pointer, 1 = pointer, 2 = double pointer, etc.
         # Additional data for specific symbol kinds
         self.extra_data: Dict[str, Any] = {}
 
+    @property
+    def is_pointer(self) -> bool:
+        """Backward compatibility property."""
+        return self.pointer_level > 0
+
     def __repr__(self) -> str:
-        return f"Symbol(name='{self.name}', kind={self.kind}, type={self.data_type}, scope={self.scope_level})"
+        pointer_str = f", ptr_level={self.pointer_level}" if self.pointer_level > 0 else ""
+        return f"Symbol(name='{self.name}', kind={self.kind}, type={self.data_type}, scope={self.scope_level}{pointer_str})"
 
 
 class Scope:
@@ -208,10 +214,10 @@ class SymbolTable:
 # Helper functions for creating common types of symbols
 def create_variable_symbol(name: str, ast_node: Any, data_type: Any, 
                           llvm_type: Any = None, llvm_value: Optional[ir.Value] = None, 
-                          scope_level: int = 0, is_pointer: bool = False) -> Symbol:
+                          scope_level: int = 0, pointer_level: int = 0) -> Symbol:
     """Create a variable symbol."""
     return Symbol(name, SymbolKind.VARIABLE, ast_node, data_type, 
-                 llvm_type, llvm_value, scope_level, is_pointer)
+                 llvm_type, llvm_value, scope_level, pointer_level)
 
 
 def create_function_symbol(name: str, ast_node: Any, return_type: Any, 
@@ -219,7 +225,7 @@ def create_function_symbol(name: str, ast_node: Any, return_type: Any,
                           scope_level: int = 0) -> Symbol:
     """Create a function symbol."""
     symbol = Symbol(name, SymbolKind.FUNCTION, ast_node, return_type, 
-                   None, llvm_function, scope_level)
+                   None, llvm_function, scope_level, 0)  # Functions are not pointers by default
     symbol.extra_data['parameter_types'] = parameter_types
     return symbol
 
@@ -227,9 +233,42 @@ def create_function_symbol(name: str, ast_node: Any, return_type: Any,
 def create_type_symbol(name: str, ast_node: Any, llvm_type: Any = None, 
                       scope_level: int = 0) -> Symbol:
     """Create a type symbol (class, struct, enum, etc.)."""
-    symbol = Symbol(name, SymbolKind.TYPE, ast_node, name, llvm_type, None, scope_level)
+    symbol = Symbol(name, SymbolKind.TYPE, ast_node, name, llvm_type, None, scope_level, 0)
     return symbol
 
+
+# Utility functions for pointer level handling
+def count_pointer_level(type_str: str) -> tuple[str, int]:
+    """
+    Count the pointer level from a type string.
+    Returns (base_type, pointer_level)
+    
+    Examples:
+    - "int" -> ("int", 0)
+    - "int*" -> ("int", 1)
+    - "char**" -> ("char", 2)
+    - "MyStruct***" -> ("MyStruct", 3)
+    """
+    base_type = type_str.rstrip('*')
+    pointer_level = len(type_str) - len(base_type)
+    return base_type, pointer_level
+
+
+def apply_pointer_level(base_llvm_type: Any, pointer_level: int) -> Any:
+    """
+    Apply pointer level to an LLVM base type.
+    
+    Args:
+        base_llvm_type: Base LLVM type (e.g., ir.IntType(32))
+        pointer_level: Number of pointer levels (0 = no pointer, 1 = pointer, etc.)
+    
+    Returns:
+        LLVM type with appropriate pointer levels applied
+    """
+    result_type = base_llvm_type
+    for _ in range(pointer_level):
+        result_type = ir.PointerType(result_type)
+    return result_type
 
 class Codegen:
     def __init__(self, compiler: "Compiler"):
@@ -863,7 +902,7 @@ class Codegen:
     
     def handle_expression(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
 
-        is_pointer = kwargs.get('is_pointer', False)
+        pointer_level = kwargs.get('pointer_level', 0)
         
         if node is None:
             raise ValueError("Node is None, cannot handle expression.")
@@ -886,7 +925,7 @@ class Codegen:
                 return self.handle_struct_access(node, builder)
 
             case NodeType.LITERAL:
-                return self._expression_handle_literal(node, builder, var_type, is_pointer=is_pointer)
+                return self._expression_handle_literal(node, builder, var_type, pointer_level=pointer_level)
 
             case NodeType.REFERENCE:
                 return self.handle_pointer(node, builder)
@@ -1086,10 +1125,10 @@ class Codegen:
     
             
     def _expression_handle_literal(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
-        is_pointer = kwargs.get('is_pointer', False)
+        pointer_level = kwargs.get('pointer_level', 0)
         
         if self.compiler.debug:
-            print(f"Handling literal: '{node.value}', target type: {var_type}, is_pointer: {is_pointer}")
+            print(f"Handling literal: '{node.value}', target type: {var_type}, pointer_level: {pointer_level}")
         
         """
         Handle literal expressions like numbers, booleans, strings, etc.
@@ -1097,7 +1136,7 @@ class Codegen:
         # Print debug info
         debug = getattr(self, 'debug', False)
         if debug:
-            print(f"Handling literal: '{node.value}', target type: {var_type}")
+            print(f"Handling literal: '{node.value}', target type: {var_type}, pointer_level: {pointer_level}")
         
         # Handle special node types that might be misidentified as literals
         if not hasattr(node, 'value'):
@@ -1112,7 +1151,20 @@ class Codegen:
         if isinstance(node.value, str) and node.value in self.symbol_table:
             var_info = self.symbol_table.lookup(node.value)
             if var_info:
-                return builder.load(var_info.llvm_value, name=f"load_{node.value}")
+                # For pointer assignments, we might need to handle dereferencing
+                if pointer_level > 0 and var_info.pointer_level > pointer_level:
+                    # Need to dereference the variable
+                    loaded_value = builder.load(var_info.llvm_value, name=f"load_{node.value}")
+                    # Apply additional dereferencing if needed
+                    for _ in range(var_info.pointer_level - pointer_level):
+                        loaded_value = builder.load(loaded_value, name=f"deref_{node.value}")
+                    return loaded_value
+                elif pointer_level > 0 and var_info.pointer_level == 0:
+                    # Taking address of a regular variable
+                    return var_info.llvm_value  # Return the alloca (address)
+                else:
+                    # Regular load
+                    return builder.load(var_info.llvm_value, name=f"load_{node.value}")
         
         # Check if this is a string literal (quoted string)
         is_string_literal = (isinstance(node.value, str) and 
@@ -1143,12 +1195,8 @@ class Codegen:
         try:
             # Handle string literals
             if is_string_literal:
-                # For pointer assignment, we want to return the string address
-                if is_pointer:
-                    return self._create_string_literal(node.value, builder, var_type, is_pointer)
-                else:
-                    # For non-pointer assignment, this might be an error or special handling
-                    return self._create_string_literal(node.value, builder, var_type, is_pointer)
+                # String literals are inherently pointers to char arrays
+                return self._create_string_literal(node.value, builder, var_type, pointer_level)
             
             # Boolean literals (true/false)
             if isinstance(var_type, ir.IntType) and var_type.width == 1:
@@ -1160,12 +1208,23 @@ class Codegen:
                     # Convert numeric value to boolean (0 = false, non-zero = true)
                     return ir.Constant(var_type, 1 if node.value != 0 else 0)
 
-            # Handle NULL (zero) pointer
+            # Handle NULL pointer literals
             if isinstance(var_type, ir.PointerType) and (
                 (isinstance(node.value, str) and (node.value == "0" or node.value.upper() == "NULL")) or
                 (isinstance(node.value, (int, float)) and node.value == 0)
             ):
                 return ir.Constant(var_type, None)
+
+            # Handle multilevel NULL pointers
+            if pointer_level > 0 and (
+                (isinstance(node.value, str) and (node.value == "0" or node.value.upper() == "NULL")) or
+                (isinstance(node.value, (int, float)) and node.value == 0)
+            ):
+                # Create appropriate null pointer type based on pointer level
+                null_type = var_type
+                for _ in range(pointer_level):
+                    null_type = ir.PointerType(null_type)
+                return ir.Constant(null_type, None)
 
             # Integer literals
             if isinstance(var_type, ir.IntType):
@@ -1198,7 +1257,7 @@ class Codegen:
                     float_val = float(node.value)
                 return ir.Constant(var_type, float_val)
 
-            raise ValueError(f"Unsupported literal type for value: '{node.value}'")
+            raise ValueError(f"Unsupported literal type for value: '{node.value}' with pointer_level: {pointer_level}")
         except ValueError as e:
             if debug:
                 print(f"Error handling literal: {e}")
@@ -1317,34 +1376,27 @@ class Codegen:
         self.symbol_table.exit_scope()
 
     def handle_variable_declaration(self, node: ASTNode.VariableDeclaration, builder: ir.IRBuilder, **kwargs):
-        """Handle variable declaration with the new symbol table."""
+        """Handle variable declaration with multilevel pointer support."""
         
-        # Determine if this is a pointer type
-        is_pointer = False
-        base_type_name = node.var_type
+        # Parse the type string to determine base type and pointer level
+        base_type_name, pointer_level = count_pointer_level(node.var_type)
         
-        # Check for pointer syntax in type name
-        if node.var_type.endswith('*'):
-            is_pointer = True
-            base_type_name = node.var_type[:-1]  # Remove the asterisk
-        
-        # Also check the node's is_pointer attribute if it exists
-        if hasattr(node, 'is_pointer') and node.is_pointer:
-            is_pointer = True
+        # Also check the node's pointer-related attributes if they exist
+        if hasattr(node, 'is_pointer') and node.is_pointer and pointer_level == 0:
+            pointer_level = 1  # Backward compatibility
+        elif hasattr(node, 'pointer_level'):
+            pointer_level = max(pointer_level, node.pointer_level)
         
         if self.compiler.debug:
-            print(f"Variable declaration: {node.name}, type: {node.var_type}, is_pointer: {is_pointer}")
+            print(f"Variable declaration: {node.name}, base_type: {base_type_name}, pointer_level: {pointer_level}")
         
-        # Get the base type
+        # Get the base LLVM type
         base_type = Datatypes.to_llvm_type(base_type_name)
+        if base_type is None:
+            raise ValueError(f"Unknown type: {base_type_name}")
         
-        # Determine the variable's LLVM type
-        if is_pointer:
-            # For pointer variables, we allocate space for a pointer to the base type
-            var_type = ir.PointerType(base_type)
-        else:
-            # For regular variables, we allocate space for the base type itself
-            var_type = base_type
+        # Apply pointer levels to get the final variable type
+        var_type = apply_pointer_level(base_type, pointer_level)
             
         # Allocate space for the variable (this creates a pointer to var_type)
         var = builder.alloca(var_type, name=node.name)
@@ -1353,29 +1405,23 @@ class Codegen:
         symbol = create_variable_symbol(
             name=node.name,
             ast_node=node,
-            data_type=node.var_type,
+            data_type=node.var_type,  # Keep original type string
             llvm_type=var_type,
             llvm_value=var,
-            is_pointer=is_pointer
+            pointer_level=pointer_level
         )
         self.symbol_table.define(symbol)
         
         # Handle initial value if present
         if node.value:
             if self.compiler.debug:
-                print(f"Processing initial value for {node.name}, is_pointer: {is_pointer}")
+                print(f"Processing initial value for {node.name}, pointer_level: {pointer_level}")
             
-            # For pointer variables, we need to handle the value differently
-            if is_pointer:
-                # The value should be something that can be stored in a pointer
-                # (like a string literal address, another pointer, or NULL)
-                value = self.handle_expression(node.value, builder, base_type, is_pointer=True)
-            else:
-                # For regular variables, handle normally
-                value = self.handle_expression(node.value, builder, var_type, is_pointer=False)
+            # Pass pointer level information to expression handler
+            value = self.handle_expression(node.value, builder, base_type, pointer_level=pointer_level)
                 
             if not value:
-                if is_pointer:
+                if pointer_level > 0:
                     # Initialize to null pointer
                     value = ir.Constant(var_type, None)
                 else:
@@ -1387,12 +1433,145 @@ class Codegen:
                     
             builder.store(value, var)
         else:
-            # Initialize pointers to null by default if no value is provided
-            if is_pointer:
+            # Initialize with default values
+            if pointer_level > 0:
+                # Initialize pointers to null by default
                 null_ptr = ir.Constant(var_type, None)
                 builder.store(null_ptr, var)
+            # Non-pointer types can be left uninitialized or initialized to zero
+            # depending on language semantics
+
+        print(self.symbol_table.get_all_symbols())
         
         return var  # Return the variable pointer
+
+
+    def _cast_value_with_pointer_level(self, value: ir.Value, target_type: Any, builder: ir.IRBuilder, 
+                                    source_pointer_level: int = 0, target_pointer_level: int = 0) -> ir.Value:
+        """
+        Cast a value to target type considering pointer levels.
+        
+        Args:
+            value: The LLVM value to cast
+            target_type: The target LLVM type
+            builder: LLVM IR builder
+            source_pointer_level: Pointer level of the source value
+            target_pointer_level: Pointer level of the target type
+        
+        Returns:
+            Casted LLVM value
+        """
+        # If pointer levels match and types are compatible, return as-is
+        if source_pointer_level == target_pointer_level and value.type == target_type:
+            return value
+        
+        # Handle pointer level mismatches
+        if source_pointer_level > target_pointer_level:
+            # Need to dereference (load from pointer)
+            result = value
+            for _ in range(source_pointer_level - target_pointer_level):
+                result = builder.load(result, name="auto_deref")
+            return result
+        elif source_pointer_level < target_pointer_level:
+            # This case is more complex and might need address-of operations
+            # For now, handle simple cases
+            if source_pointer_level == 0 and target_pointer_level == 1:
+                # Taking address of a value - this typically requires the value to be in memory
+                # This might need special handling depending on the context
+                pass
+        
+        # Fall back to regular casting
+        return self._cast_value(value, target_type, builder)
+
+
+    def _get_variable_address(self, var_name: str, builder: ir.IRBuilder, required_pointer_level: int = 1) -> ir.Value:
+        """
+        Get the address of a variable with appropriate pointer level.
+        
+        Args:
+            var_name: Name of the variable
+            builder: LLVM IR builder
+            required_pointer_level: Required pointer level for the result
+        
+        Returns:
+            LLVM value representing the address with correct pointer level
+        """
+        symbol = self.symbol_table.lookup(var_name)
+        if not symbol:
+            raise ValueError(f"Variable '{var_name}' not found")
+        
+        # The symbol's llvm_value is always an alloca (pointer to the variable's type)
+        base_address = symbol.llvm_value
+        
+        if symbol.pointer_level == 0:
+            # Regular variable - return its address
+            if required_pointer_level == 1:
+                return base_address  # Address of the variable
+            else:
+                # Need multiple levels of indirection - this is complex
+                raise ValueError(f"Cannot create {required_pointer_level}-level pointer to non-pointer variable")
+        else:
+            # Pointer variable
+            if required_pointer_level == symbol.pointer_level + 1:
+                return base_address  # Address of the pointer variable
+            elif required_pointer_level == symbol.pointer_level:
+                return builder.load(base_address, name=f"load_{var_name}")  # Value of the pointer
+            elif required_pointer_level < symbol.pointer_level:
+                # Need to dereference
+                result = builder.load(base_address, name=f"load_{var_name}")
+                for _ in range(symbol.pointer_level - required_pointer_level):
+                    result = builder.load(result, name=f"deref_{var_name}")
+                return result
+            else:
+                # Need more levels - complex case
+                raise ValueError(f"Cannot create {required_pointer_level}-level pointer from {symbol.pointer_level}-level pointer")
+
+
+    def _handle_pointer_arithmetic(self, left_val: ir.Value, operator: str, right_val: ir.Value, 
+                                builder: ir.IRBuilder, left_pointer_level: int = 0, 
+                                right_pointer_level: int = 0) -> ir.Value:
+        """
+        Handle arithmetic operations involving pointers.
+        
+        Args:
+            left_val: Left operand LLVM value
+            operator: Arithmetic operator ('+', '-', etc.)
+            right_val: Right operand LLVM value
+            builder: LLVM IR builder
+            left_pointer_level: Pointer level of left operand
+            right_pointer_level: Pointer level of right operand
+        
+        Returns:
+            Result of pointer arithmetic
+        """
+        # Pointer + integer or integer + pointer
+        if (left_pointer_level > 0 and right_pointer_level == 0) or \
+        (left_pointer_level == 0 and right_pointer_level > 0):
+            
+            if operator == '+':
+                # Use GEP (GetElementPtr) for pointer arithmetic
+                if left_pointer_level > 0:
+                    return builder.gep(left_val, [right_val], name="ptr_add")
+                else:
+                    return builder.gep(right_val, [left_val], name="ptr_add")
+            elif operator == '-' and left_pointer_level > 0:
+                # Subtract integer from pointer
+                neg_right = builder.neg(right_val, name="neg_offset")
+                return builder.gep(left_val, [neg_right], name="ptr_sub")
+        
+        # Pointer - pointer (both operands are pointers)
+        elif left_pointer_level > 0 and right_pointer_level > 0 and operator == '-':
+            # Convert pointers to integers, subtract, then divide by element size
+            left_int = builder.ptrtoint(left_val, ir.IntType(64), name="ptr_to_int_left")
+            right_int = builder.ptrtoint(right_val, ir.IntType(64), name="ptr_to_int_right")
+            diff = builder.sub(left_int, right_int, name="ptr_diff")
+            
+            # Get element size (this is simplified - real implementation needs type info)
+            element_size = ir.Constant(ir.IntType(64), 1)  # Assuming byte-sized elements
+            return builder.sdiv(diff, element_size, name="ptr_distance")
+        
+        # Regular arithmetic for non-pointer cases
+        return None  # Let caller handle regular arithmetic
 
     def get_struct_field_ptr(self, struct_name: str, field_name: str, builder: ir.IRBuilder):
         """
