@@ -113,7 +113,6 @@ class ASTParser:
             else: 
                 self.syntax_error("Expected ',' or ';' after variable declaration", self.current_token())
         
-        print(list_of_declarations)
         if len(list_of_declarations) > 1:
             # If we have multiple declarations, create a block node
             return ASTNode.CompoundVariableDeclaration(var_type=var_type.value, declarations=list_of_declarations)
@@ -121,55 +120,69 @@ class ASTParser:
         else:
             return node
     def variable_assignment(self):
+        list_of_assignments = []
+        while True:
+        
+            # First token should be the variable name
+            var_name = self.current_token()
+            if not var_name or var_name._type != TokenType.LITERAL:
+                self.syntax_error("Expected variable name", var_name)
+            
+            # Move to assignment operator
+            next_token = self.next_token()
+            if not next_token or next_token._type != TokenType.OPERATOR:
+                self.syntax_error("Expected assignment operator", next_token)
+            
+            # Handle different assignment operators
+            op = next_token.value
+            
+            # Move to value and parse expression
+            self.next_token()  # Move past assignment operator
+            value = self.parse_expression()
+            
+            # Create variable assignment node
+            # For compound assignments (+=, -=, etc.), create a binary operation expression
+            if op in [operators["ADD_ASSIGN"], operators["SUBTRACT_ASSIGN"], operators["MULTIPLY_ASSIGN"], 
+                    operators["DIVIDE_ASSIGN"], operators["MODULO_ASSIGN"]]:
+                # Map the compound operator to its basic operator
+                basic_op_map = {
+                    operators["ADD_ASSIGN"]: "+",
+                    operators["SUBTRACT_ASSIGN"]: "-",
+                    operators["MULTIPLY_ASSIGN"]: "*",
+                    operators["DIVIDE_ASSIGN"]: "/",
+                    operators["MODULO_ASSIGN"]: "%"
+                }
+                
+                # Create a binary operation for a += b equivalent to a = a + b
+                compound_value = ASTNode.ExpressionNode(
+                    NodeType.BINARY_OP,
+                    left=ASTNode.ExpressionNode(NodeType.LITERAL, value=var_name.value),
+                    right=value,
+                    op=basic_op_map[op]
+                )
+                
+                node = ASTNode.VariableAssignment(var_name.value, compound_value)
+            else:
+                # Simple assignment (=)
+                node = ASTNode.VariableAssignment(var_name.value, value)
+            # Check semicolon or comma
+            if self.current_token().value == separators["COMMA"]:
+                list_of_assignments.append(node)
+                self.next_token() # consume the comma
+            elif self.current_token().value == separators["SEMICOLON"]:
+                list_of_assignments.append(node)
+                self.next_token()
+                # consume the semicolon
+                break
+            else:
+                self.syntax_error("Expected ',' or ';' after variable assignment", self.current_token())
 
-        
-        # First token should be the variable name
-        var_name = self.current_token()
-        if not var_name or var_name._type != TokenType.LITERAL:
-            self.syntax_error("Expected variable name", var_name)
-        
-        # Move to assignment operator
-        next_token = self.next_token()
-        if not next_token or next_token._type != TokenType.OPERATOR:
-            self.syntax_error("Expected assignment operator", next_token)
-        
-        # Handle different assignment operators
-        op = next_token.value
-        
-        # Move to value and parse expression
-        self.next_token()  # Move past assignment operator
-        value = self.parse_expression()
-        
-        # Create variable assignment node
-        # For compound assignments (+=, -=, etc.), create a binary operation expression
-        if op in [operators["ADD_ASSIGN"], operators["SUBTRACT_ASSIGN"], operators["MULTIPLY_ASSIGN"], 
-                operators["DIVIDE_ASSIGN"], operators["MODULO_ASSIGN"]]:
-            # Map the compound operator to its basic operator
-            basic_op_map = {
-                operators["ADD_ASSIGN"]: "+",
-                operators["SUBTRACT_ASSIGN"]: "-",
-                operators["MULTIPLY_ASSIGN"]: "*",
-                operators["DIVIDE_ASSIGN"]: "/",
-                operators["MODULO_ASSIGN"]: "%"
-            }
             
-            # Create a binary operation for a += b equivalent to a = a + b
-            compound_value = ASTNode.ExpressionNode(
-                NodeType.BINARY_OP,
-                left=ASTNode.ExpressionNode(NodeType.LITERAL, value=var_name.value),
-                right=value,
-                op=basic_op_map[op]
-            )
-            
-            node = ASTNode.VariableAssignment(var_name.value, compound_value)
+        if len(list_of_assignments) > 1:
+            # If we have multiple assignments, create a block node
+            return ASTNode.CompoundVariableAssigment(assignments=list_of_assignments)
         else:
-            # Simple assignment (=)
-            node = ASTNode.VariableAssignment(var_name.value, value)
-        
-        # Expect semicolon
-        self.check_semicolon()
-
-        return node
+            return node
 
     def return_statement(self) -> ASTNode:
 
@@ -948,7 +961,7 @@ class ASTParser:
             if current_token.value in Datatypes.user_defined_types:
                 return self.variable_declaration(True)
             elif next_token and next_token._type == TokenType.OPERATOR and next_token.value in assignment_operators.values(): 
-                return self.variable_declaration()
+                return self.variable_assignment()
             elif (next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["LPAREN"]) or \
                 (next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["SEMICOLON"]):
                 # Function call with parentheses or without parentheses
@@ -1251,3 +1264,4 @@ class ASTParser:
                 self.nodes.append(node)
 
         return self.nodes
+    
