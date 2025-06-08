@@ -282,7 +282,7 @@ separators = {
     "RBRACKET": "]",        # right square bracket
     "LBRACE": "{",          # left curly brace
     "RBRACE": "}",          # right curly brace
-    "ARROW": "->",          # member or function pointer access
+    "SCOPE": "::",          # scope resolution operator, used to access members of a class or namespace
     "THREEDOTS": "...",        # ellipsis for variadic functions
 }
 
@@ -537,16 +537,26 @@ class Lexer:
                 column += cursor - start
                 continue  # Avoid incrementing cursor again
 
-            # Handle ellipsis first (before other operators)
-            elif source_code[cursor:cursor + 3] == separators["THREEDOTS"]:
-                token = Token(TokenType.OPERATOR, separators["THREEDOTS"], line, column)
-                tokens.append(token)
-                cursor += 3
-                column += 3
-                continue
-
-            # Handle Operators
+            # Handle multi-character operators and separators first (longest match first)
             else:
+                # Check for scope resolution operator :: first
+                if (cursor + 1 < len(source_code) and 
+                    source_code[cursor:cursor + 2] == separators["SCOPE"]):
+                    token = Token(TokenType.SEPARATOR, separators["SCOPE"], line, column)
+                    tokens.append(token)
+                    cursor += 2
+                    column += 2
+                    continue
+                
+                # Handle ellipsis (before other operators)
+                elif source_code[cursor:cursor + 3] == separators["THREEDOTS"]:
+                    token = Token(TokenType.SEPARATOR, separators["THREEDOTS"], line, column)
+                    tokens.append(token)
+                    cursor += 3
+                    column += 3
+                    continue
+
+                # Handle other multi-character operators
                 operator_found = False
                 for operator_name, operator_value in sorted(operators.items(), key=lambda x: -len(x[1])):  # Match longest first
                     if source_code[cursor:cursor + len(operator_value)] == operator_value:
@@ -558,10 +568,11 @@ class Lexer:
                         break
                 
                 if not operator_found:
-                    # Handle Separators
+                    # Handle single-character separators
                     separator_found = False
                     for separator_name, separator_value in separators.items():
-                        if source_code[cursor:cursor + len(separator_value)] == separator_value:
+                        if (len(separator_value) == 1 and  # Only single-character separators here
+                            source_code[cursor:cursor + len(separator_value)] == separator_value):
                             token = Token(TokenType.SEPARATOR, separator_value, line, column)
                             tokens.append(token)
                             cursor += len(separator_value)
