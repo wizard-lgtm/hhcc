@@ -23,7 +23,6 @@ class NodeType(Enum):
     FOR_LOOP = auto()
     ARRAY_ACCESS = auto()
     STRUCT_ACCESS = auto()
-    ENUM_ACCESS = auto()
     REFERENCE = auto()
     COMMENT = auto()
     BREAK = auto()
@@ -33,6 +32,8 @@ class NodeType(Enum):
     ARRAY_DECLARATION = auto()
     ARRAY_INITIALIZATION = auto()
     EXTERN = auto()
+    ENUM_ACCESS = auto()
+    
 
 
 class ASTNodeType(Enum):
