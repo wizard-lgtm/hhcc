@@ -313,6 +313,7 @@ class Codegen:
             ASTNode.Extern: self.handle_extern,
             ASTNode.CompoundVariableDeclaration: self.handle_compound_variable_declaration,
             ASTNode.CompoundVariableAssigment: self.handle_compound_variable_assignment,
+            ASTNode.Enum: self.handle_enum,
             
         }
 
@@ -929,9 +930,65 @@ class Codegen:
 
             case NodeType.REFERENCE:
                 return self.handle_pointer(node, builder)
+            case NodeType.ENUM_ACCESS:
+                return self.handle_enum_access(node, builder, var_type)
 
             case _:
                 raise ValueError(f"Unsupported expression node type: {node.node_type}")
+    def handle_enum_access(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
+        """
+        Handle enum access operations like EnumName::MemberName or EnumName.MemberName
+        
+        Args:
+            node: The enum access node (should have enum_name and member_name attributes)
+            builder: The LLVM IR builder
+            var_type: The expected type of the expression
+            
+        Returns:
+            The LLVM constant value representing the enum member
+        """
+        debug = getattr(self.compiler, 'debug', False)
+        
+        # Extract enum name and member name from the node
+        # The exact attribute names depend on how your AST represents enum access
+        if hasattr(node, 'enum_name') and hasattr(node, 'member_name'):
+            enum_name = node.enum_name
+            member_name = node.member_name
+        elif hasattr(node, 'left') and hasattr(node, 'right'):
+            # Alternative structure where left is enum name, right is member name
+            enum_name = node.left.value if hasattr(node.left, 'value') else str(node.left)
+            member_name = node.right.value if hasattr(node.right, 'value') else str(node.right)
+        else:
+            raise ValueError(f"Invalid enum access node structure: {node}")
+        
+        if debug:
+            print(f"Handling enum access: {enum_name}::{member_name}")
+        
+        # Look up the enum type information
+        enum_type_info = Datatypes.get_type(enum_name)
+        if not enum_type_info:
+            raise ValueError(f"Unknown enum type: {enum_name}")
+        
+        # Check if it's actually an enum type
+        if not isinstance(enum_type_info, self.EnumTypeInfo):
+            raise ValueError(f"'{enum_name}' is not an enum type")
+        
+        # Get the member value
+        member_value = enum_type_info.get_member_value(member_name)
+        if member_value is None:
+            available_members = list(enum_type_info.values.keys())
+            raise ValueError(f"Enum member '{member_name}' not found in enum '{enum_name}'. "
+                            f"Available members: {available_members}")
+        
+        if debug:
+            print(f"Enum {enum_name}::{member_name} has value {member_value}")
+        
+        # Determine the target type for the constant
+        target_type = var_type if var_type else enum_type_info.get_llvm_type()
+        
+        # Create and return the constant value
+        return ir.Constant(target_type, member_value)
+
 
     def handle_unary_op(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
         """
@@ -1125,143 +1182,159 @@ class Codegen:
     
             
     def _expression_handle_literal(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
-        pointer_level = kwargs.get('pointer_level', 0)
-        
-        if self.compiler.debug:
-            print(f"Handling literal: '{node.value}', target type: {var_type}, pointer_level: {pointer_level}")
-        
-        """
-        Handle literal expressions like numbers, booleans, strings, etc.
-        """
-        # Print debug info
-        debug = getattr(self, 'debug', False)
-        if debug:
-            print(f"Handling literal: '{node.value}', target type: {var_type}, pointer_level: {pointer_level}")
-        
-        # Handle special node types that might be misidentified as literals
-        if not hasattr(node, 'value'):
-            if debug:
-                print(f"Node doesn't have a 'value' attribute: {node}")
-            if hasattr(node, 'node_type') and node.node_type == NodeType.STRUCT_ACCESS:
-                return self.handle_struct_access(node, builder)
-            else:
-                raise ValueError(f"Invalid literal node: {node}")
-        
-        # Handle variable reference if it's in the symbol table
-        if isinstance(node.value, str) and node.value in self.symbol_table:
-            var_info = self.symbol_table.lookup(node.value)
-            if var_info:
-                # For pointer assignments, we might need to handle dereferencing
-                if pointer_level > 0 and var_info.pointer_level > pointer_level:
-                    # Need to dereference the variable
-                    loaded_value = builder.load(var_info.llvm_value, name=f"load_{node.value}")
-                    # Apply additional dereferencing if needed
-                    for _ in range(var_info.pointer_level - pointer_level):
-                        loaded_value = builder.load(loaded_value, name=f"deref_{node.value}")
-                    return loaded_value
-                elif pointer_level > 0 and var_info.pointer_level == 0:
-                    # Taking address of a regular variable
-                    return var_info.llvm_value  # Return the alloca (address)
-                else:
-                    # Regular load
-                    return builder.load(var_info.llvm_value, name=f"load_{node.value}")
-        
-        # Check if this is a string literal (quoted string)
-        is_string_literal = (isinstance(node.value, str) and 
-                            len(node.value) >= 2 and 
-                            node.value.startswith('"') and 
-                            node.value.endswith('"'))
-        
-        # Infer type if not specified
-        if var_type is None:
-            if isinstance(node.value, str):
-                if is_string_literal:
-                    # String literal - return pointer to i8 array
-                    var_type = ir.PointerType(ir.IntType(8))
-                elif node.value.isdigit():
-                    var_type = ir.IntType(32)  # default to i32
-                elif node.value.lower() in ['true', 'false']:
-                    var_type = ir.IntType(1)
-                elif '.' in node.value and all(c.isdigit() or c == '.' or c == '-' or c == '+' or c.lower() == 'e' 
-                                            for c in node.value):
-                    var_type = ir.DoubleType()  # or FloatType
-                else:
-                    # Could be a variable name or other identifier
-                    raise ValueError(f"Cannot infer type for literal value: '{node.value}'")
-            else:
-                # If not a string, what is it?
-                raise ValueError(f"Unsupported literal type: {type(node.value)}")
-
-        try:
-            # Handle string literals
-            if is_string_literal:
-                # String literals are inherently pointers to char arrays
-                return self._create_string_literal(node.value, builder, var_type, pointer_level)
+            pointer_level = kwargs.get('pointer_level', 0)
             
-            # Boolean literals (true/false)
-            if isinstance(var_type, ir.IntType) and var_type.width == 1:
-                if isinstance(node.value, str) and node.value.lower() == 'true':
-                    return ir.Constant(var_type, 1)
-                elif isinstance(node.value, str) and node.value.lower() == 'false':
-                    return ir.Constant(var_type, 0)
-                elif isinstance(node.value, (int, float)):
-                    # Convert numeric value to boolean (0 = false, non-zero = true)
-                    return ir.Constant(var_type, 1 if node.value != 0 else 0)
-
-            # Handle NULL pointer literals
-            if isinstance(var_type, ir.PointerType) and (
-                (isinstance(node.value, str) and (node.value == "0" or node.value.upper() == "NULL")) or
-                (isinstance(node.value, (int, float)) and node.value == 0)
-            ):
-                return ir.Constant(var_type, None)
-
-            # Handle multilevel NULL pointers
-            if pointer_level > 0 and (
-                (isinstance(node.value, str) and (node.value == "0" or node.value.upper() == "NULL")) or
-                (isinstance(node.value, (int, float)) and node.value == 0)
-            ):
-                # Create appropriate null pointer type based on pointer level
-                null_type = var_type
-                for _ in range(pointer_level):
-                    null_type = ir.PointerType(null_type)
-                return ir.Constant(null_type, None)
-
-            # Integer literals
-            if isinstance(var_type, ir.IntType):
-                # Handle different types of input for integer literals
-                if hasattr(self, '_expression_parse_integer_literal'):
-                    return self._expression_parse_integer_literal(node.value, var_type)
-                else:
-                    # Fallback if the helper method doesn't exist
-                    if isinstance(node.value, str):
-                        # Handle hexadecimal, octal, binary literals
-                        if node.value.startswith('0x') or node.value.startswith('0X'):
-                            int_val = int(node.value, 16)
-                        elif node.value.startswith('0b') or node.value.startswith('0B'):
-                            int_val = int(node.value, 2)
-                        elif node.value.startswith('0') and len(node.value) > 1 and node.value[1].isdigit():
-                            int_val = int(node.value, 8)
-                        else:
-                            # Try parsing as decimal
-                            int_val = int(float(node.value))
-                    else:
-                        # Already a numeric value
-                        int_val = int(node.value)
-                    return ir.Constant(var_type, int_val)
-
-            # Floating point literals
-            if isinstance(var_type, (ir.FloatType, ir.DoubleType)):
-                if isinstance(node.value, str):
-                    float_val = float(node.value)
-                else:
-                    float_val = float(node.value)
-                return ir.Constant(var_type, float_val)
-
-            raise ValueError(f"Unsupported literal type for value: '{node.value}' with pointer_level: {pointer_level}")
-        except ValueError as e:
+            if self.compiler.debug:
+                print(f"Handling literal: '{node.value}', target type: {var_type}, pointer_level: {pointer_level}")
+            
+            """
+            Handle literal expressions like numbers, booleans, strings, etc.
+            """
+            # Print debug info
+            debug = getattr(self, 'debug', False)
             if debug:
-                print(f"Error handling literal: {e}")
-            raise ValueError(f"Invalid literal or undefined variable: '{node.value}'")
+                print(f"Handling literal: '{node.value}', target type: {var_type}, pointer_level: {pointer_level}")
+            
+            # Handle special node types that might be misidentified as literals
+            if not hasattr(node, 'value'):
+                if debug:
+                    print(f"Node doesn't have a 'value' attribute: {node}")
+                if hasattr(node, 'node_type') and node.node_type == NodeType.STRUCT_ACCESS:
+                    return self.handle_struct_access(node, builder)
+                else:
+                    raise ValueError(f"Invalid literal node: {node}")
+            
+            # Check for enum access (EnumName::MemberName format in string)
+            if isinstance(node.value, str) and '::' in node.value:
+                parts = node.value.split('::', 1)
+                if len(parts) == 2:
+                    enum_name, member_name = parts
+                    enum_type_info = Datatypes.get_type(enum_name)
+                    if enum_type_info and isinstance(enum_type_info, self.EnumTypeInfo):
+                        member_value = enum_type_info.get_member_value(member_name)
+                        if member_value is not None:
+                            target_type = var_type if var_type else enum_type_info.get_llvm_type()
+                            return ir.Constant(target_type, member_value)
+                        else:
+                            available_members = list(enum_type_info.values.keys())
+                            raise ValueError(f"Enum member '{member_name}' not found in enum '{enum_name}'. "
+                                        f"Available members: {available_members}")
+            
+            # Handle variable reference if it's in the symbol table
+            if isinstance(node.value, str) and node.value in self.symbol_table:
+                var_info = self.symbol_table.lookup(node.value)
+                if var_info:
+                    # For pointer assignments, we might need to handle dereferencing
+                    if pointer_level > 0 and var_info.pointer_level > pointer_level:
+                        # Need to dereference the variable
+                        loaded_value = builder.load(var_info.llvm_value, name=f"load_{node.value}")
+                        # Apply additional dereferencing if needed
+                        for _ in range(var_info.pointer_level - pointer_level):
+                            loaded_value = builder.load(loaded_value, name=f"deref_{node.value}")
+                        return loaded_value
+                    elif pointer_level > 0 and var_info.pointer_level == 0:
+                        # Taking address of a regular variable
+                        return var_info.llvm_value  # Return the alloca (address)
+                    else:
+                        # Regular load
+                        return builder.load(var_info.llvm_value, name=f"load_{node.value}")
+            
+            # Check if this is a string literal (quoted string)
+            is_string_literal = (isinstance(node.value, str) and 
+                                len(node.value) >= 2 and 
+                                node.value.startswith('"') and 
+                                node.value.endswith('"'))
+            
+            # Infer type if not specified
+            if var_type is None:
+                if isinstance(node.value, str):
+                    if is_string_literal:
+                        # String literal - return pointer to i8 array
+                        var_type = ir.PointerType(ir.IntType(8))
+                    elif node.value.isdigit():
+                        var_type = ir.IntType(32)  # default to i32
+                    elif node.value.lower() in ['true', 'false']:
+                        var_type = ir.IntType(1)
+                    elif '.' in node.value and all(c.isdigit() or c == '.' or c == '-' or c == '+' or c.lower() == 'e' 
+                                                for c in node.value):
+                        var_type = ir.DoubleType()  # or FloatType
+                    else:
+                        # Could be a variable name or other identifier
+                        raise ValueError(f"Cannot infer type for literal value: '{node.value}'")
+                else:
+                    # If not a string, what is it?
+                    raise ValueError(f"Unsupported literal type: {type(node.value)}")
+
+            try:
+                # Handle string literals
+                if is_string_literal:
+                    # String literals are inherently pointers to char arrays
+                    return self._create_string_literal(node.value, builder, var_type, pointer_level)
+                
+                # Boolean literals (true/false)
+                if isinstance(var_type, ir.IntType) and var_type.width == 1:
+                    if isinstance(node.value, str) and node.value.lower() == 'true':
+                        return ir.Constant(var_type, 1)
+                    elif isinstance(node.value, str) and node.value.lower() == 'false':
+                        return ir.Constant(var_type, 0)
+                    elif isinstance(node.value, (int, float)):
+                        # Convert numeric value to boolean (0 = false, non-zero = true)
+                        return ir.Constant(var_type, 1 if node.value != 0 else 0)
+
+                # Handle NULL pointer literals
+                if isinstance(var_type, ir.PointerType) and (
+                    (isinstance(node.value, str) and (node.value == "0" or node.value.upper() == "NULL")) or
+                    (isinstance(node.value, (int, float)) and node.value == 0)
+                ):
+                    return ir.Constant(var_type, None)
+
+                # Handle multilevel NULL pointers
+                if pointer_level > 0 and (
+                    (isinstance(node.value, str) and (node.value == "0" or node.value.upper() == "NULL")) or
+                    (isinstance(node.value, (int, float)) and node.value == 0)
+                ):
+                    # Create appropriate null pointer type based on pointer level
+                    null_type = var_type
+                    for _ in range(pointer_level):
+                        null_type = ir.PointerType(null_type)
+                    return ir.Constant(null_type, None)
+
+                # Integer literals
+                if isinstance(var_type, ir.IntType):
+                    # Handle different types of input for integer literals
+                    if hasattr(self, '_expression_parse_integer_literal'):
+                        return self._expression_parse_integer_literal(node.value, var_type)
+                    else:
+                        # Fallback if the helper method doesn't exist
+                        if isinstance(node.value, str):
+                            # Handle hexadecimal, octal, binary literals
+                            if node.value.startswith('0x') or node.value.startswith('0X'):
+                                int_val = int(node.value, 16)
+                            elif node.value.startswith('0b') or node.value.startswith('0B'):
+                                int_val = int(node.value, 2)
+                            elif node.value.startswith('0') and len(node.value) > 1 and node.value[1].isdigit():
+                                int_val = int(node.value, 8)
+                            else:
+                                # Try parsing as decimal
+                                int_val = int(float(node.value))
+                        else:
+                            # Already a numeric value
+                            int_val = int(node.value)
+                        return ir.Constant(var_type, int_val)
+
+                # Floating point literals
+                if isinstance(var_type, (ir.FloatType, ir.DoubleType)):
+                    if isinstance(node.value, str):
+                        float_val = float(node.value)
+                    else:
+                        float_val = float(node.value)
+                    return ir.Constant(var_type, float_val)
+
+                raise ValueError(f"Unsupported literal type for value: '{node.value}' with pointer_level: {pointer_level}")
+            except ValueError as e:
+                if debug:
+                    print(f"Error handling literal: {e}")
+                raise ValueError(f"Invalid literal or undefined variable: '{node.value}'")
         
     def _expression_parse_integer_literal(self, value: str, var_type: ir.IntType):
         val = int(value)
@@ -1398,6 +1471,7 @@ class Codegen:
         # Apply pointer levels to get the final variable type
         var_type = apply_pointer_level(base_type, pointer_level)
             
+       
         # Allocate space for the variable (this creates a pointer to var_type)
         var = builder.alloca(var_type, name=node.name)
         
@@ -2043,7 +2117,153 @@ class Codegen:
         # This function typically doesn't return an LLVM value, just defines the type.
         return None
 
+    # You'll also need an EnumTypeInfo class similar to your ClassTypeInfo
+    class EnumTypeInfo:
+        def __init__(self, llvm_type, values, ast_node):
+            self.llvm_type = llvm_type  # The underlying LLVM type (i32)
+            self.values = values        # Dictionary mapping member names to integer values
+            self.ast_node = ast_node    # Reference to the original AST node
+        
+        def get_member_value(self, member_name):
+            """Get the integer value for a specific enum member"""
+            return self.values.get(member_name)
+        
+        def get_llvm_type(self):
+            """Return the LLVM type for this enum (typically i32)"""
+            return self.llvm_type
+        
+        def has_member(self, member_name):
+            """Check if a member exists in this enum"""
+            return member_name in self.values
 
+    # Helper method for evaluating enum constant expressions
+    def _evaluate_enum_constant(self, expr):
+        """
+        Evaluate a constant expression for enum values.
+        This handles simple cases like integer literals and basic arithmetic.
+        """
+        if expr.node_type == NodeType.LITERAL:
+            # Handle integer literals directly
+            if isinstance(expr.value, str):
+                try:
+                    # Handle different number formats
+                    if expr.value.startswith('0x') or expr.value.startswith('0X'):
+                        return int(expr.value, 16)
+                    elif expr.value.startswith('0b') or expr.value.startswith('0B'):
+                        return int(expr.value, 2)
+                    elif expr.value.startswith('0') and len(expr.value) > 1 and expr.value[1].isdigit():
+                        return int(expr.value, 8)
+                    else:
+                        return int(expr.value)
+                except ValueError:
+                    raise ValueError(f"Invalid integer literal in enum: {expr.value}")
+            elif isinstance(expr.value, (int, float)):
+                return int(expr.value)
+        
+        elif expr.node_type == NodeType.BINARY_OP:
+            # Handle simple binary operations for enum constants
+            left_val = self._evaluate_enum_constant(expr.left)
+            right_val = self._evaluate_enum_constant(expr.right)
+            
+            if left_val is None or right_val is None:
+                return None
+                
+            match expr.op:
+                case '+':
+                    return left_val + right_val
+                case '-':
+                    return left_val - right_val
+                case '*':
+                    return left_val * right_val
+                case '/':
+                    return left_val // right_val  # Integer division
+                case '%':
+                    return left_val % right_val
+                case '<<':
+                    return left_val << right_val
+                case '>>':
+                    return left_val >> right_val
+                case '&':
+                    return left_val & right_val
+                case '|':
+                    return left_val | right_val
+                case '^':
+                    return left_val ^ right_val
+                case _:
+                    raise ValueError(f"Unsupported operator in enum constant: {expr.op}")
+        
+        elif expr.node_type == NodeType.UNARY_OP:
+            # Handle unary operations
+            operand_val = self._evaluate_enum_constant(expr.left)
+            if operand_val is None:
+                return None
+                
+            match expr.op:
+                case '-':
+                    return -operand_val
+                case '+':
+                    return operand_val
+                case '~':
+                    return ~operand_val
+                case _:
+                    raise ValueError(f"Unsupported unary operator in enum constant: {expr.op}")
+        
+        # If we can't evaluate it as a constant, return None
+        return None
+
+    def handle_enum(self, node: ASTNode.Enum, **kwargs):
+        # --- START: Handling LLVM Enum Types ---
+        # In LLVM, enums are typically represented as integers (i32 is common).
+        # We'll use i32 as the underlying type for our enum values.
+        enum_underlying_type = ir.IntType(32)  # i32 type
+        
+        # Process each enum member and evaluate its value
+        enum_values = {}
+        current_value = 0  # Default starting value for enums
+        
+        for member_name, value_expr in node.members:
+            if value_expr is not None:
+                # If an explicit value is provided, evaluate it as a constant
+                # We'll create a temporary builder for constant evaluation
+                # or handle simple literal cases directly
+                evaluated_value = self._evaluate_enum_constant(value_expr)
+                if evaluated_value is not None:
+                    current_value = evaluated_value
+            
+            # Store the enum member with its integer value
+            enum_values[member_name] = current_value
+            current_value += 1  # Auto-increment for next member
+        
+        # Create a wrapper object to store enum information
+        enum_type_info = self.EnumTypeInfo(enum_underlying_type, enum_values, node)
+        
+        # Register the enum type in your type system
+        # This makes the enum name available as a type
+        Datatypes.add_type(node.name, enum_type_info)
+        
+        # Store the enum info in your internal table (similar to struct_table)
+        if not hasattr(self, 'enum_table'):
+            self.enum_table = {}
+        
+        self.enum_table[node.name] = {
+            'name': node.name,
+            'enum_type_info': enum_type_info,
+            'underlying_type': enum_underlying_type,
+            'values': enum_values
+        }
+        
+        # Optionally, you might want to create global constants for each enum member
+        # This allows enum members to be used as constants in your code
+        for member_name, member_value in enum_values.items():
+            qualified_name = f"{node.name}::{member_name}"  # Or whatever naming convention you use
+            constant_value = ir.Constant(enum_underlying_type, member_value)
+            # Store or register the constant as needed by your system
+            # self.constant_table[qualified_name] = constant_value
+        
+        # --- END: Handling LLVM Enum Types ---
+        
+        # This function typically doesn't return an LLVM value, just defines the type
+        return None
     def handle_union(self, node, **kwargs):
         pass
 
