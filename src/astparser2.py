@@ -244,6 +244,7 @@ class ASTParser:
 
     def parse_primary_expression(self):
         current = self.current_token()
+        print("HI")
         
         if not current:
             self.syntax_error("Unexpected end of input during expression parsing", self.peek_token(-1))
@@ -353,6 +354,23 @@ class ASTParser:
                         left=node,  # The struct identifier
                         right=ASTNode.ExpressionNode(NodeType.LITERAL, value=field_name),  # The field name
                         op="."  # Use dot to denote struct access
+                    )
+                # Handle enum access with scope resolution operator (::)
+                elif self.current_token()._type == TokenType.SEPARATOR and self.current_token().value == separators["SCOPE"]:  # Assuming SCOPE = "::"
+                    self.next_token()  # Consume the '::'
+
+                    if not self.current_token() or self.current_token()._type != TokenType.LITERAL:
+                        self.syntax_error("Expected identifier after '::'", self.current_token())
+
+                    enum_member = self.current_token().value
+                    self.next_token()  # Consume the identifier
+
+                    # Build a new ENUM_ACCESS node
+                    node = ASTNode.ExpressionNode(
+                        NodeType.ENUM_ACCESS,
+                        left=node,  # e.g., Colors
+                        right=ASTNode.ExpressionNode(NodeType.LITERAL, value=enum_member),
+                        op="::"
                     )
                 else:
                     break  # Exit loop if no more function calls, array indexing, or struct access
