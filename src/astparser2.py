@@ -947,6 +947,8 @@ class ASTParser:
                 return self.break_statement()
             if current_token.value == keywords["CONTINUE"]:
                 return self.continue_statement()
+            if current_token.value == keywords["ENUM"]:
+                return self.parse_enum()
         
         if current_token._type == TokenType.SEPARATOR:
             if current_token.value == separators["LBRACE"]:
@@ -1249,6 +1251,63 @@ class ASTParser:
                 break
 
         return clobbers
+
+    def parse_enum(self) -> ASTNode.Enum:
+        """Parses an enum declaration and returns an Enum ASTNode with expression-based values."""
+        if self.current_token().value != keywords["ENUM"]:
+            self.syntax_error("Expected 'enum' keyword", self.current_token())
+        self.next_token()  # consume 'enum'
+
+        if not self.current_token().value or self.current_token()._type != TokenType.LITERAL:
+            self.syntax_error("Expected enum name", self.current_token())
+        enum_name = self.current_token().value
+        self.next_token()  # consume enum name
+
+        if not self.current_token().value or self.current_token().value != separators["LBRACE"]:
+            self.syntax_error("Expected '{' to start enum body", self.current_token())
+        self.next_token()  # consume '{'
+
+        members = []
+        last_expr = None
+
+        while True:
+            token = self.current_token()
+            if not token:
+                self.syntax_error("Unexpected end of input in enum declaration")
+
+            if token.value == separators["RBRACE"]:
+                self.next_token()  # consume '}'
+                break
+
+            if token._type != TokenType.LITERAL:
+                self.syntax_error("Expected enum member name", token)
+            member_name = token.value
+            self.next_token()  # consume member name
+
+            if self.current_token() and self.current_token().value == operators["ASSIGN"]:
+                self.next_token()  # consume '='
+                expr = self.parse_expression()
+                last_expr = expr
+            else:
+                if last_expr is None:
+                    # Default to literal 0 if it's the first member
+                    expr = ASTNode.ExpressionNode(NodeType.LITERAL, value=0)
+                last_expr = expr
+
+            members.append((member_name, expr))
+
+            if self.current_token() and self.current_token().value == separators["COMMA"]:
+                self.next_token()  # consume ','
+            elif self.current_token() and self.current_token().value == separators["RBRACE"]:
+                continue
+            else:
+                self.syntax_error("Expected ',' or '}' in enum declaration", self.current_token())
+
+        if not self.current_token() or self.current_token().value != separators["SEMICOLON"]:
+            self.syntax_error("Expected ';' after enum declaration", self.current_token())
+        self.next_token()  # consume ';'
+
+        return ASTNode.Enum(enum_name, members)
 
 
     def parse(self):

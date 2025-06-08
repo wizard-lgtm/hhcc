@@ -267,7 +267,8 @@ keywords = {
     "EXTERN": "extern",
     "TRUE": "true",
     "FALSE": "false",
-    "VOLATILE": "volatile" #  # Used to indicate that a variable may be changed by external factors, such as hardware or other threads.
+    "VOLATILE": "volatile", #  # Used to indicate that a variable may be changed by external factors, such as hardware or other threads.
+    "ENUM": "enum",  # Used to define a set of named integer constants.
 }
 
 separators = {
