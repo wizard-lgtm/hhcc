@@ -11,7 +11,7 @@ class NodeType(Enum):
     FUNCTION_DEFINITION = auto()
     VARIABLE_DECLARATION = auto()
     VARIABLE_ASSIGNMENT = auto()
-    STRUCT_FIELD_ASSIGNMENT = auto()  # Add this for struct field assignments
+    STRUCT_FIELD_ASSIGNMENT = auto() 
     RETURN = auto()
     LITERAL = auto()
     UNARY_OP = auto()
@@ -23,6 +23,7 @@ class NodeType(Enum):
     FOR_LOOP = auto()
     ARRAY_ACCESS = auto()
     STRUCT_ACCESS = auto()
+    ENUM_ACCESS = auto()
     REFERENCE = auto()
     COMMENT = auto()
     BREAK = auto()
@@ -32,6 +33,7 @@ class NodeType(Enum):
     ARRAY_DECLARATION = auto()
     ARRAY_INITIALIZATION = auto()
     EXTERN = auto()
+
 
 class ASTNodeType(Enum):
     # Expression nodes
@@ -93,6 +95,10 @@ class ASTNode:
             result += ")\n"
 
             return result
+        
+        def __repr__(self):
+            return self.print_tree()
+            
 
     class Block:
         def __init__(self, nodes: List[Any]):
@@ -576,3 +582,23 @@ class ASTNode:
                 result += f"{prefix}└── No assignments\n"
             return result
         pass
+    class Enum:
+        def __init__(self, name: str, members: List[Tuple[str, 'ASTNode.ExpressionNode']]):
+            self.name: str = name
+            self.members: List[Tuple[str, 'ASTNode.ExpressionNode']] = members
+            Datatypes.add_type(name, self)
+
+        def print_tree(self, prefix: str = "") -> str:
+            result = f"{prefix}Enum\n"
+            result += f"{prefix}├── name: {self.name}\n"
+            if self.members:
+                result += f"{prefix}└── members:\n"
+                for i, (name, expr) in enumerate(self.members):
+                    connector = "├──" if i < len(self.members) - 1 else "└──"
+                    result += f"{prefix}    {connector} {name} = {expr}\n"
+            else:
+                result += f"{prefix}└── members: []\n"
+            return result
+
+        def __repr__(self) -> str:
+            return self.print_tree()
