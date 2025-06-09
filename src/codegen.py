@@ -15,6 +15,84 @@ class SymbolKind(Enum):
     PARAMETER = auto()
     CLASS = auto()
     UNION = auto()
+    
+from enum import Enum 
+
+class EnumValueType(Enum):
+    """Enum to represent the type of enum values"""
+    INTEGER = "integer"
+    STRING = "string"
+
+class EnumTypeInfo:
+    """Enhanced enum type information that handles both integer and string enums"""
+    
+    def __init__(self, name, enum_value_type, llvm_type, values, ast_node):
+        self.name = name                    # Name of the enum
+        self.enum_value_type = enum_value_type  # EnumValueType.INTEGER or EnumValueType.STRING
+        self.llvm_type = llvm_type         # The underlying LLVM type (i32 for int, i8* for string)
+        self.values = values               # Dictionary mapping member names to their values
+        self.ast_node = ast_node           # Reference to the original AST node
+        
+        # For string enums, we also need to store the LLVM constants
+        self.llvm_constants = {}           # Maps member names to LLVM constants
+    
+    def get_member_value(self, member_name):
+        """Get the value for a specific enum member"""
+        return self.values.get(member_name)
+    
+    def get_llvm_constant(self, member_name):
+        """Get the LLVM constant for a specific enum member"""
+        if self.enum_value_type == EnumValueType.STRING:
+            return self.llvm_constants.get(member_name)
+        else:
+            # For integer enums, create the constant on-the-fly
+            value = self.values.get(member_name)
+            if value is not None:
+                return ir.Constant(self.llvm_type, value)
+        return None
+    
+    def get_llvm_type(self):
+        """Return the LLVM type for this enum"""
+        return self.llvm_type
+    
+    def has_member(self, member_name):
+        """Check if a member exists in this enum"""
+        return member_name in self.values
+    
+    def is_string_enum(self):
+        """Check if this is a string enum"""
+        return self.enum_value_type == EnumValueType.STRING
+    
+    def is_integer_enum(self):
+        """Check if this is an integer enum"""
+        return self.enum_value_type == EnumValueType.INTEGER
+
+class EnumTable:
+    """Centralized enum table to manage all enum types"""
+    
+    def __init__(self):
+        self.enums = {}  # Maps enum names to EnumTypeInfo objects
+    
+    def add_enum(self, name, enum_type_info):
+        """Add an enum to the table"""
+        self.enums[name] = enum_type_info
+    
+    def get_enum(self, name):
+        """Get enum information by name"""
+        return self.enums.get(name)
+    
+    def has_enum(self, name):
+        """Check if an enum exists"""
+        return name in self.enums
+    
+    def remove_enum(self, name):
+        """Remove an enum from the table"""
+        if name in self.enums:
+            del self.enums[name]
+    
+    def clear(self):
+        """Clear all enums"""
+        self.enums.clear()
 
 
 class Symbol:
@@ -2117,34 +2195,229 @@ class Codegen:
         # This function typically doesn't return an LLVM value, just defines the type.
         return None
 
-    # You'll also need an EnumTypeInfo class similar to your ClassTypeInfo
-    class EnumTypeInfo:
-        def __init__(self, llvm_type, values, ast_node):
-            self.llvm_type = llvm_type  # The underlying LLVM type (i32)
-            self.values = values        # Dictionary mapping member names to integer values
-            self.ast_node = ast_node    # Reference to the original AST node
-        
-        def get_member_value(self, member_name):
-            """Get the integer value for a specific enum member"""
-            return self.values.get(member_name)
-        
-        def get_llvm_type(self):
-            """Return the LLVM type for this enum (typically i32)"""
-            return self.llvm_type
-        
-        def has_member(self, member_name):
-            """Check if a member exists in this enum"""
-            return member_name in self.values
 
-    # Helper method for evaluating enum constant expressions
+
+    def _determine_enum_type(self, members):
+        """
+        Determine if this is a string enum or integer enum based on the first member
+        
+        Args:
+            members: List of (member_name, value_expr) tuples
+            
+        Returns:
+            EnumValueType indicating the type of enum
+        """
+        if not members:
+            return EnumValueType.INTEGER  # Default to integer for empty enums
+        
+        # Check the first member that has a value
+        for member_name, value_expr in members:
+            if value_expr is not None:
+                if value_expr.node_type == NodeType.LITERAL:
+                    # Check if the literal value is a string (contains quotes)
+                    if isinstance(value_expr.value, str):
+                        # Check if it's a quoted string
+                        if (value_expr.value.startswith('"') and value_expr.value.endswith('"')) or \
+                        (value_expr.value.startswith("'") and value_expr.value.endswith("'")):
+                            return EnumValueType.STRING
+                        else:
+                            # Try to parse as integer
+                            try:
+                                int(value_expr.value)
+                                return EnumValueType.INTEGER
+                            except ValueError:
+                                # If it's not a valid integer, treat as string
+                                return EnumValueType.STRING
+        
+        # Default to integer enum
+        return EnumValueType.INTEGER
+
+    def _create_string_constant(self, builder, string_value):
+        """
+        Create a string constant and return a pointer to it
+        
+        Args:
+            builder: LLVM IR builder
+            string_value: The string value (with or without quotes)
+            
+        Returns:
+            LLVM constant representing i8* pointer to the string
+        """
+        # Remove quotes if present
+        if string_value.startswith('"') and string_value.endswith('"'):
+            clean_string = string_value[1:-1]
+        elif string_value.startswith("'") and string_value.endswith("'"):
+            clean_string = string_value[1:-1]
+        else:
+            clean_string = string_value
+        
+        # Handle escape sequences
+        clean_string = clean_string.replace('\\n', '\n').replace('\\t', '\t').replace('\\"', '"').replace("\\'", "'")
+        
+        # Create the string constant
+        string_const = ir.Constant(ir.ArrayType(ir.IntType(8), len(clean_string) + 1), 
+                                bytearray(clean_string.encode('utf-8') + b'\0'))
+        
+        # Create a global variable to hold the string
+        global_string = ir.GlobalVariable(self.module, string_const.type, name=f"str_{hash(clean_string) & 0xFFFFFFFF}")
+        global_string.initializer = string_const
+        global_string.global_constant = True
+        global_string.linkage = 'private'
+        
+        # Return a pointer to the string (i8*)
+        return global_string.gep([ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)])
+
+    def handle_enum(self, node: ASTNode.Enum, **kwargs):
+        """
+        Enhanced enum handler that supports both integer and string enums
+        """
+        debug = getattr(self.compiler, 'debug', False)
+        
+        if debug:
+            print(f"Processing enum: {node.name}")
+        
+        # Initialize enum table if it doesn't exist
+        if not hasattr(self, 'enum_table'):
+            self.enum_table = EnumTable()
+        
+        # Determine the type of enum (integer or string)
+        enum_type = self._determine_enum_type(node.members)
+        
+        if debug:
+            print(f"Enum type determined: {enum_type.value}")
+        
+        # Set up the underlying LLVM type
+        if enum_type == EnumValueType.STRING:
+            underlying_type = ir.PointerType(ir.IntType(8))  # i8* for strings
+        else:
+            underlying_type = ir.IntType(32)  # i32 for integers
+        
+        # Process enum members
+        enum_values = {}
+        llvm_constants = {}
+        current_value = 0  # For auto-incrementing integer enums
+        
+        for member_name, value_expr in node.members:
+            if debug:
+                print(f"Processing member: {member_name}")
+            
+            if enum_type == EnumValueType.STRING:
+                if value_expr is not None and value_expr.node_type == NodeType.LITERAL:
+                    string_value = value_expr.value
+                    enum_values[member_name] = string_value
+                    
+                    # Create the LLVM string constant
+                    string_constant = self._create_string_constant(self.builder, string_value)
+                    llvm_constants[member_name] = string_constant
+                    
+                    if debug:
+                        print(f"String enum member {member_name} = {string_value}")
+                else:
+                    raise ValueError(f"String enum member '{member_name}' must have a string literal value")
+            
+            else:  # Integer enum
+                if value_expr is not None:
+                    # Evaluate the constant expression
+                    evaluated_value = self._evaluate_enum_constant(value_expr)
+                    if evaluated_value is not None:
+                        current_value = evaluated_value
+                
+                enum_values[member_name] = current_value
+                if debug:
+                    print(f"Integer enum member {member_name} = {current_value}")
+                
+                current_value += 1  # Auto-increment for next member
+        
+        # Create the EnumTypeInfo object
+        enum_type_info = EnumTypeInfo(
+            name=node.name,
+            enum_value_type=enum_type,
+            llvm_type=underlying_type,
+            values=enum_values,
+            ast_node=node
+        )
+        
+        # For string enums, store the LLVM constants
+        if enum_type == EnumValueType.STRING:
+            enum_type_info.llvm_constants = llvm_constants
+        
+        # Register the enum in the type system
+        Datatypes.add_type(node.name, enum_type_info)
+        
+        # Add to our enum table
+        self.enum_table.add_enum(node.name, enum_type_info)
+        
+        if debug:
+            print(f"Enum {node.name} registered successfully")
+        
+        return None
+
+    def handle_enum_access(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
+        """
+        Enhanced enum access handler that supports both integer and string enums
+        """
+        debug = getattr(self.compiler, 'debug', False)
+        
+        # Extract enum name and member name from the node
+        if hasattr(node, 'enum_name') and hasattr(node, 'member_name'):
+            enum_name = node.enum_name
+            member_name = node.member_name
+        elif hasattr(node, 'left') and hasattr(node, 'right'):
+            enum_name = node.left.value if hasattr(node.left, 'value') else str(node.left)
+            member_name = node.right.value if hasattr(node.right, 'value') else str(node.right)
+        else:
+            raise ValueError(f"Invalid enum access node structure: {node}")
+        
+        if debug:
+            print(f"Handling enum access: {enum_name}::{member_name}")
+        
+        # Look up the enum type information
+        if hasattr(self, 'enum_table'):
+            enum_type_info = self.enum_table.get_enum(enum_name)
+        else:
+            enum_type_info = Datatypes.get_type(enum_name)
+        
+        if not enum_type_info:
+            raise ValueError(f"Unknown enum type: {enum_name}")
+        
+        if not isinstance(enum_type_info, EnumTypeInfo):
+            raise ValueError(f"'{enum_name}' is not an enum type")
+        
+        # Check if the member exists
+        if not enum_type_info.has_member(member_name):
+            available_members = list(enum_type_info.values.keys())
+            raise ValueError(f"Enum member '{member_name}' not found in enum '{enum_name}'. "
+                            f"Available members: {available_members}")
+        
+        if debug:
+            member_value = enum_type_info.get_member_value(member_name)
+            print(f"Enum {enum_name}::{member_name} has value {member_value} (type: {enum_type_info.enum_value_type.value})")
+        
+        # Return the appropriate LLVM constant
+        if enum_type_info.is_string_enum():
+            # For string enums, return the stored LLVM constant (i8*)
+            llvm_constant = enum_type_info.get_llvm_constant(member_name)
+            if llvm_constant is None:
+                raise ValueError(f"LLVM constant not found for string enum member {enum_name}::{member_name}")
+            return llvm_constant
+        else:
+            # For integer enums, create the constant
+            member_value = enum_type_info.get_member_value(member_name)
+            target_type = var_type if var_type else enum_type_info.get_llvm_type()
+            return ir.Constant(target_type, member_value)
+
+    # Helper method additions to your existing class
     def _evaluate_enum_constant(self, expr):
         """
-        Evaluate a constant expression for enum values.
-        This handles simple cases like integer literals and basic arithmetic.
+        Enhanced constant expression evaluator (your existing implementation with minor improvements)
         """
         if expr.node_type == NodeType.LITERAL:
-            # Handle integer literals directly
             if isinstance(expr.value, str):
+                # Check if it's a quoted string (should not be evaluated as integer)
+                if (expr.value.startswith('"') and expr.value.endswith('"')) or \
+                (expr.value.startswith("'") and expr.value.endswith("'")):
+                    return None  # String literals are not integer constants
+                
                 try:
                     # Handle different number formats
                     if expr.value.startswith('0x') or expr.value.startswith('0X'):
@@ -2156,12 +2429,12 @@ class Codegen:
                     else:
                         return int(expr.value)
                 except ValueError:
-                    raise ValueError(f"Invalid integer literal in enum: {expr.value}")
+                    return None  # Not a valid integer
             elif isinstance(expr.value, (int, float)):
                 return int(expr.value)
         
         elif expr.node_type == NodeType.BINARY_OP:
-            # Handle simple binary operations for enum constants
+            # Your existing binary operation handling
             left_val = self._evaluate_enum_constant(expr.left)
             right_val = self._evaluate_enum_constant(expr.right)
             
@@ -2176,7 +2449,7 @@ class Codegen:
                 case '*':
                     return left_val * right_val
                 case '/':
-                    return left_val // right_val  # Integer division
+                    return left_val // right_val
                 case '%':
                     return left_val % right_val
                 case '<<':
@@ -2190,10 +2463,10 @@ class Codegen:
                 case '^':
                     return left_val ^ right_val
                 case _:
-                    raise ValueError(f"Unsupported operator in enum constant: {expr.op}")
+                    return None
         
         elif expr.node_type == NodeType.UNARY_OP:
-            # Handle unary operations
+            # Your existing unary operation handling
             operand_val = self._evaluate_enum_constant(expr.left)
             if operand_val is None:
                 return None
@@ -2206,64 +2479,9 @@ class Codegen:
                 case '~':
                     return ~operand_val
                 case _:
-                    raise ValueError(f"Unsupported unary operator in enum constant: {expr.op}")
+                    return None
         
-        # If we can't evaluate it as a constant, return None
-        return None
-
-    def handle_enum(self, node: ASTNode.Enum, **kwargs):
-        # --- START: Handling LLVM Enum Types ---
-        # In LLVM, enums are typically represented as integers (i32 is common).
-        # We'll use i32 as the underlying type for our enum values.
-        enum_underlying_type = ir.IntType(32)  # i32 type
-        
-        # Process each enum member and evaluate its value
-        enum_values = {}
-        current_value = 0  # Default starting value for enums
-        
-        for member_name, value_expr in node.members:
-            if value_expr is not None:
-                # If an explicit value is provided, evaluate it as a constant
-                # We'll create a temporary builder for constant evaluation
-                # or handle simple literal cases directly
-                evaluated_value = self._evaluate_enum_constant(value_expr)
-                if evaluated_value is not None:
-                    current_value = evaluated_value
-            
-            # Store the enum member with its integer value
-            enum_values[member_name] = current_value
-            current_value += 1  # Auto-increment for next member
-        
-        # Create a wrapper object to store enum information
-        enum_type_info = self.EnumTypeInfo(enum_underlying_type, enum_values, node)
-        
-        # Register the enum type in your type system
-        # This makes the enum name available as a type
-        Datatypes.add_type(node.name, enum_type_info)
-        
-        # Store the enum info in your internal table (similar to struct_table)
-        if not hasattr(self, 'enum_table'):
-            self.enum_table = {}
-        
-        self.enum_table[node.name] = {
-            'name': node.name,
-            'enum_type_info': enum_type_info,
-            'underlying_type': enum_underlying_type,
-            'values': enum_values
-        }
-        
-        # Optionally, you might want to create global constants for each enum member
-        # This allows enum members to be used as constants in your code
-        for member_name, member_value in enum_values.items():
-            qualified_name = f"{node.name}::{member_name}"  # Or whatever naming convention you use
-            constant_value = ir.Constant(enum_underlying_type, member_value)
-            # Store or register the constant as needed by your system
-            # self.constant_table[qualified_name] = constant_value
-        
-        # --- END: Handling LLVM Enum Types ---
-        
-        # This function typically doesn't return an LLVM value, just defines the type
-        return None
+        return None 
     def handle_union(self, node, **kwargs):
         pass
 
@@ -2303,6 +2521,7 @@ class Codegen:
 
             
     def handle_extern(self, node: ASTNode.Extern, **kwargs):
+        print(node)
         """Handle extern function declarations."""
         # Get function name, return type and parameter information
         func_name = node.declaration.name
@@ -2315,7 +2534,7 @@ class Codegen:
         for param in node.declaration.parameters:
             param_type = self.get_llvm_type(param.var_type)
             # Handle pointer types
-            if param.is_pointer:
+            if param.pointer_level > 0:
                 param_type = ir.PointerType(param_type)
             param_types.append(param_type)
         
