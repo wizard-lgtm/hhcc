@@ -2,7 +2,8 @@ from llvmlite import ir, binding
 from typing import TYPE_CHECKING, Dict, Callable, Type
 from astnodes import *
 from lexer import *
-from src.codegen.symboltable import create_variable_symbol
+from .symboltable import create_variable_symbol
+
 
 # Utility functions for pointer level handling
 def count_pointer_level(type_str: str) -> tuple[str, int]:
@@ -171,41 +172,41 @@ def handle_variable_assignment(self, node: ASTNode.VariableAssignment, builder: 
         # Store the evaluated value into the variable
         builder.store(value, var_ptr)
 
-    def handle_variable_increment(self, node, builder, **kwargs):
-        # Find variable in symbol table
-        self.symbol_table.lookup(node.name)
-        # Get the variable pointer
-        var_ptr = self.get_variable_pointer(node.name)
-        # Load the current value
-        current_value = builder.load(var_ptr, name=f"load_{node.name}")
-        # Increment the value
-        incremented_value = builder.add(current_value, ir.Constant(current_value.type, 1), name=f"increment_{node.name}")
-        # Store the incremented value back to the variable
-        builder.store(incremented_value, var_ptr)
-        # Return the incremented value
-        return incremented_value
-    
-    def handle_variable_decrement(self, node, builder, **kwargs):
-        # Find variable in symbol table
-        self.symbol_table.lookup(node.name)
-        # Get the variable pointer
-        var_ptr = self.get_variable_pointer(node.name)
-        # Load the current value
-        current_value = builder.load(var_ptr, name=f"load_{node.name}")
-        # Decrement the value
-        decremented_value = builder.sub(current_value, ir.Constant(current_value.type, 1), name=f"decrement_{node.name}")
-        # Store the decremented value back to the variable
-        builder.store(decremented_value, var_ptr)
-        # Return the decremented value
-        return decremented_value
+def handle_variable_increment(self, node, builder, **kwargs):
+    # Find variable in symbol table
+    self.symbol_table.lookup(node.name)
+    # Get the variable pointer
+    var_ptr = self.get_variable_pointer(node.name)
+    # Load the current value
+    current_value = builder.load(var_ptr, name=f"load_{node.name}")
+    # Increment the value
+    incremented_value = builder.add(current_value, ir.Constant(current_value.type, 1), name=f"increment_{node.name}")
+    # Store the incremented value back to the variable
+    builder.store(incremented_value, var_ptr)
+    # Return the incremented value
+    return incremented_value
 
-    def handle_compound_variable_declaration(self, node: ASTNode.CompoundVariableDeclaration, builder: ir.IRBuilder, **kwargs):
-        """Handle compound variable declarations (like structs or unions)."""
-        # Get the type of the compound variable
-        for declaration in node.declarations:
-            self.handle_variable_declaration(declaration, builder)
-        
-    def handle_compound_variable_assignment(self, node: ASTNode.CompoundVariableAssigment, builder: ir.IRBuilder, **kwargs):
-        for assignment in node.assignments:
-            self.handle_variable_assignment(assignment, builder)
-        
+def handle_variable_decrement(self, node, builder, **kwargs):
+    # Find variable in symbol table
+    self.symbol_table.lookup(node.name)
+    # Get the variable pointer
+    var_ptr = self.get_variable_pointer(node.name)
+    # Load the current value
+    current_value = builder.load(var_ptr, name=f"load_{node.name}")
+    # Decrement the value
+    decremented_value = builder.sub(current_value, ir.Constant(current_value.type, 1), name=f"decrement_{node.name}")
+    # Store the decremented value back to the variable
+    builder.store(decremented_value, var_ptr)
+    # Return the decremented value
+    return decremented_value
+
+def handle_compound_variable_declaration(self, node: ASTNode.CompoundVariableDeclaration, builder: ir.IRBuilder, **kwargs):
+    """Handle compound variable declarations (like structs or unions)."""
+    # Get the type of the compound variable
+    for declaration in node.declarations:
+        self.handle_variable_declaration(declaration, builder)
+    
+def handle_compound_variable_assignment(self, node: ASTNode.CompoundVariableAssigment, builder: ir.IRBuilder, **kwargs):
+    for assignment in node.assignments:
+        self.handle_variable_assignment(assignment, builder)
+    

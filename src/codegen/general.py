@@ -1,7 +1,5 @@
-from src.codegen import SymbolTable 
-from symboltable import Symbol, create_function_symbol
-from llvmlite import ir, binding
-from typing import TYPE_CHECKING, Dict, Callable, Type
+from .symboltable import create_function_symbol
+from llvmlite import ir 
 from astnodes import *
 from lexer import *
 

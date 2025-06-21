@@ -1,6 +1,4 @@
-from src.codegen import SymbolTable 
-from symboltable import Symbol
-from llvmlite import ir, binding
+from llvmlite import ir
 from typing import TYPE_CHECKING, Dict, Callable, Type
 from astnodes import *
 from lexer import *
@@ -128,8 +126,11 @@ def handle_for_loop(self, node: ASTNode.ForLoop, builder: ir.IRBuilder, **kwargs
     # Position the builder at the end block
     builder.position_at_end(loop_end_block)
 
-    def handle_break(self, node, **kwargs):
-        pass
+def handle_break(self, node, **kwargs):
+    pass
 
-    def handle_continue(self, node, **kwargs):
-        pass
+def handle_continue(self, node, **kwargs):
+    pass
+
+def handle_comment(self, node: ASTNode.Comment, **kwargs):
+    pass

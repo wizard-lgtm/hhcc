@@ -9,7 +9,7 @@ from lexer import *
 from astparser2 import *
 from preprocessor import Preprocessor
 from target import Target
-from codegen import Codegen
+from codegen.base import Codegen
 from linker import Linker  # Import the new Linker class
 
 import platform 

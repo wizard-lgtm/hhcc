@@ -1,5 +1,3 @@
-from src.codegen import SymbolTable 
-from symboltable import Symbol
 from llvmlite import ir, binding
 from typing import TYPE_CHECKING, Dict, Callable, Type
 from astnodes import *

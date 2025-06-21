@@ -3,7 +3,7 @@ from llvmlite import ir, binding
 from typing import TYPE_CHECKING, Dict, Callable, Type
 from astnodes import *
 from lexer import *
-from src.codegen.symboltable import Symbol, SymbolKind, create_function_symbol
+from .symboltable import Symbol, SymbolKind, create_function_symbol
 
 def handle_function_definition(self, node: ASTNode.FunctionDefinition, builder: Optional[ir.IRBuilder] = None, **kwargs):
     """Handle function definition with the new symbol table."""

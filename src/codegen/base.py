@@ -1,10 +1,20 @@
 
-from src.codegen import SymbolTable 
-from symboltable import Symbol
+from .symboltable import SymbolTable 
 from llvmlite import ir, binding
 from typing import TYPE_CHECKING, Dict, Callable, Type
 from astnodes import *
 from lexer import *
+
+# Import your modules
+from . import general
+from . import expressions  
+from . import controlflow
+from . import casting
+from . import functions
+from . import variables
+from . import structures
+from . import symboltable
+
 
 if TYPE_CHECKING:
     from compiler import Compiler  # Only for type hints
@@ -43,8 +53,23 @@ def apply_pointer_level(base_llvm_type: Any, pointer_level: int) -> Any:
     return result_type
 
 
-
+import inspect
+import types
 class Codegen:
+    def _bind_handler_functions(self, modules):
+        """Automatically bind all functions from the given modules to this instance."""
+        for module in modules:
+            # Get all functions from the module
+            for name, obj in inspect.getmembers(module, inspect.isfunction):
+                # Skip private functions (starting with _) if you want
+                # if name.startswith('_'):
+                #     continue
+                    
+                # Bind the function to this instance
+                bound_method = types.MethodType(obj, self)
+                setattr(self, name, bound_method)
+                
+                print(f"Bound function: {name} from module {module.__name__}")
     def __init__(self, compiler: "Compiler"):
         # Initialize the new symbol table
         self.symbol_table = SymbolTable()
@@ -64,6 +89,26 @@ class Codegen:
         self.struct_table = {}
 
         self.string_literals = []
+
+        
+                # List of modules to auto-bind functions from
+        handler_modules = [
+            general,
+            expressions, 
+            controlflow,
+            casting,
+            functions,
+            variables,
+            structures,
+            symboltable
+        ]
+
+        self._bind_handler_functions(handler_modules)
+
+
+        import types
+        
+
 
         # Node type to handler mapping
         self.node_handlers: Dict[Type, Callable] = {
