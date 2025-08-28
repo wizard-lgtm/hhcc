@@ -164,7 +164,7 @@ def handle_class(self, node: ASTNode.Class, **kwargs):
 
     # Create a wrapper object to store additional information about our class,
     # including the now-defined LLVM struct type.
-    class_type_info = self.ClassTypeInfo(struct_type, field_names, parent_type_info, node)
+    class_type_info = ClassTypeInfo(struct_type, field_names, parent_type_info, node)
 
     # Register the class type info in your type system.
     # This makes the 'Node' source type name map to the 'class_type_info' object,

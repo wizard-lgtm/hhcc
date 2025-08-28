@@ -18,7 +18,7 @@ def handle_function_definition(self, node: ASTNode.FunctionDefinition, builder: 
     for param in node_params:
         if param.is_user_typed:
             print("NOT IMPLEMENTED! user typed parameters")
-        if param.is_pointer:
+        if param.pointer_level > 0:
             print("NOT IMPLEMENTED, function pointer types")
         
         param_type = self.type_map[param.var_type]
