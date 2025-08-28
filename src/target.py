@@ -56,7 +56,8 @@ class Target:
         solaris = 'solaris'
         dragonfly = 'dragonfly'
         serenity = 'serenity'
-        unknown = "unknown" # Default value 
+        none = 'none'        # For bare-metal targets
+        unknown = "unknown"  # Default value 
         
     class Abi:
         unknown = 'unknown'  # Default value for unknown ABI
@@ -71,6 +72,7 @@ class Target:
         cygnus = 'cygnus'    # Cygnus ABI (used with Cygwin)
         newlib = 'newlib'    # Newlib ABI
         mingw = 'mingw'      # MinGW ABI
+        none = 'none'        # For bare-metal targets
         
     class Vendor:
         unknown = 'unknown'  # Default value for unknown vendor
@@ -100,15 +102,22 @@ class Target:
         self.os = os
         self.abi = abi
 
+    @property
+    def triple(self) -> str:
+        """
+        Generate the LLVM triple based on the architecture, vendor, OS, and ABI.
+        Format: <arch>-<vendor>-<os>-<abi>
+        """
+        return f"{self.arch}-{self.vendor}-{self.os}-{self.abi}"
+
     def get_llvm_triple(self) -> str:
         """
         Generate the LLVM triple based on the architecture, vendor, OS, and ABI.
         Format: <arch>-<vendor>-<os>-<abi>
-        If vendor or abi is 'unknown', they are omitted from the string.
         """
+        return self.triple
 
-        return f"{self.arch}-{self.vendor}-{self.os}-{self.abi}"
-
+    @staticmethod
     def from_string(target_str):
         """
         Parses a target string in one of the formats:
@@ -147,6 +156,37 @@ class Target:
         
         # Return the constructed Target
         return Target(arch=arch, vendor=vendor, os=os, abi=abi)
+    
+    @staticmethod
+    def list_targets():
+        """
+        Print all available target options.
+        """
+        print("Available architectures:")
+        for name, value in vars(Target.Arch).items():
+            if not name.startswith('__'):
+                print(f"  {value}")
+        
+        print("\nAvailable operating systems:")
+        for name, value in vars(Target.Os).items():
+            if not name.startswith('__'):
+                print(f"  {value}")
+        
+        print("\nAvailable vendors:")
+        for name, value in vars(Target.Vendor).items():
+            if not name.startswith('__'):
+                print(f"  {value}")
+        
+        print("\nAvailable ABIs:")
+        for name, value in vars(Target.Abi).items():
+            if not name.startswith('__'):
+                print(f"  {value}")
+        
+        print("\nExample target strings:")
+        print("  riscv64-unknown-none-none     (RISC-V 64-bit bare-metal)")
+        print("  x86_64-pc-linux-gnu          (x86-64 Linux)")
+        print("  arm-none-none-eabi            (ARM bare-metal with EABI)")
+        print("  aarch64-apple-macos-unknown   (ARM64 macOS)")
     
     def __str__(self):
         return self.get_llvm_triple()
