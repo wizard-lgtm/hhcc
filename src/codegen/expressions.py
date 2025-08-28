@@ -446,12 +446,24 @@ def handle_cast(self: "Codegen", node: ASTNode.ExpressionNode, builder: ir.IRBui
     if debug:
         print(f"Handling cast to type: {target_type_name}")
     
-    # Get the target LLVM type
-    target_type_info = Datatypes.get_type_from_string(target_type_name)
-    if not target_type_info:
-        raise ValueError(f"Unknown target type for cast: {target_type_name}")
+    # Handle pointer types (e.g., "U32*", "U32***")
+    pointer_level = 0
+    base_type_name = target_type_name
     
-    target_llvm_type = Datatypes.get_llvm_type(target_type_name)
+    # Count and remove pointer indicators
+    while base_type_name.endswith('*'):
+        pointer_level += 1
+        base_type_name = base_type_name[:-1]
+    
+    # Get the base target LLVM type
+    target_type_info = Datatypes.get_type_from_string(base_type_name)
+    if not target_type_info:
+        raise ValueError(f"Unknown target type for cast: {base_type_name}")
+    
+    # Get LLVM type and apply pointer levels
+    target_llvm_type = Datatypes.get_llvm_type(base_type_name)
+    for _ in range(pointer_level):
+        target_llvm_type = target_llvm_type.as_pointer()
     
     # Evaluate the expression to be casted
     source_value = self.handle_expression(expression_node, builder, None, **kwargs)

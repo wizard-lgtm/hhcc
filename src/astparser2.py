@@ -260,39 +260,20 @@ class ASTParser:
                 op='&'
             )
 
-
+        # Handle parentheses - could be cast or grouping
         if current._type == TokenType.SEPARATOR and current.value == separators["LPAREN"]:
+            # Try to parse as cast first
+            cast_result = self.try_parse_cast()
+            if cast_result:
+                return cast_result
+            
+            # If not a cast, parse as parenthesized expression
             self.next_token()  # consume '('
-
-            # Peek: check if the next token is a type identifier
-            next_tok = self.current_token()
-            if next_tok and next_tok._type == TokenType.KEYWORD:  # you'll need a TokenType.TYPE
-                # C-style cast: (TYPE)expr
-                type_name = next_tok.value
-                self.next_token()  # consume the type name
-
-                # Expect closing ')'
-                if not self.current_token() or self.current_token().value != separators["RPAREN"]:
-                    self.syntax_error("Expected ')' after type in cast", self.current_token())
-                self.next_token()  # consume ')'
-
-                # Parse the expression being casted
-                expr = self.parse_primary_expression()
-
-                return ASTNode.ExpressionNode(
-                    NodeType.CAST,
-                    left=expr,
-                    value=type_name,
-                    op="cast"
-                )
-            else:
-                # Normal parenthesized expression
-                expr = self.parse_binary_expression()
-                if not self.current_token() or self.current_token().value != separators["RPAREN"]:
-                    self.syntax_error("Expected closing parenthesis ')'", self.current_token())
-                self.next_token()  # consume ')'
-                return expr
-
+            expr = self.parse_binary_expression()
+            if not self.current_token() or self.current_token().value != separators["RPAREN"]:
+                self.syntax_error("Expected closing parenthesis ')'", self.current_token())
+            self.next_token()  # consume ')'
+            return expr
             
         # Handle literals and identifiers
         elif current._type == TokenType.LITERAL:
@@ -411,6 +392,81 @@ class ASTParser:
             
         else:
             self.syntax_error("Unexpected token in expression", current)
+
+    def try_parse_cast(self):
+        """
+        Try to parse a cast expression. Returns the cast node if successful, None otherwise.
+        This function should not consume tokens if it fails.
+        """
+        start_position = self.index
+        
+        try:
+            # We're already at '(', consume it
+            self.next_token()  # consume '('
+            
+            # Try to parse the type inside parentheses
+            type_info = self.try_parse_type_in_cast()
+            if not type_info:
+                # Not a valid type, backtrack
+                self.token_index = start_position
+                return None
+            
+            type_name, pointer_level = type_info
+            
+            # Expect closing ')'
+            if not self.current_token() or self.current_token().value != separators["RPAREN"]:
+                # Not a valid cast, backtrack
+                self.token_index = start_position
+                return None
+            
+            self.next_token()  # consume ')'
+            
+            # Parse the expression being casted
+            expr = self.parse_primary_expression()
+            
+            # Create the full type name with pointer indicators
+            full_type_name = type_name + ("*" * pointer_level)
+            
+            return ASTNode.ExpressionNode(
+                NodeType.CAST,
+                left=expr,
+                value=full_type_name,
+                op="cast"
+            )
+            
+        except Exception:
+            # If any error occurs, backtrack and return None
+            self.token_index = start_position
+            return None
+
+    def try_parse_type_in_cast(self):
+        """
+        Try to parse a type specification inside cast parentheses.
+        Returns (type_name, pointer_level) if successful, None otherwise.
+        """
+        current = self.current_token()
+        
+        # First token should be a type keyword
+        if not current or current._type != TokenType.KEYWORD:
+            return None
+        
+        # Check if it's a valid type name - adjust this list to match your actual type system
+        type_name = current.value
+        valid_types = ["U8", "U16", "U32", "U64", "I8", "I16", "I32", "I64", "F32", "F64", "BOOL", "VOID"]
+        if type_name not in valid_types:
+            return None
+        
+        self.next_token()  # consume the type name
+        
+        # Count pointer levels
+        pointer_level = 0
+        while (self.current_token() and 
+               self.current_token()._type == TokenType.OPERATOR and 
+               self.current_token().value == "*"):  # Use "*" instead of separators["ASTERISK"]
+            pointer_level += 1
+            self.next_token()  # consume '*'
+        
+        return (type_name, pointer_level)
 
 
     def block(self):
