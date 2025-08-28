@@ -33,6 +33,7 @@ class NodeType(Enum):
     ARRAY_INITIALIZATION = auto()
     EXTERN = auto()
     ENUM_ACCESS = auto()
+    CAST = auto()
     
 
 

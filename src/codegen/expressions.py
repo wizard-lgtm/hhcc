@@ -363,6 +363,9 @@ def handle_expression(self: "Codegen", node: ASTNode.ExpressionNode, builder: ir
             return self.handle_pointer(node, builder)
         case NodeType.ENUM_ACCESS:
             return self.handle_enum_access(node, builder, var_type)
+        case NodeType.CAST:
+            return self.handle_cast(node, builder)
+
 
         case _:
             raise ValueError(f"Unsupported expression node type: {node.node_type}")
@@ -420,6 +423,195 @@ def handle_enum_access(self: "Codegen", node: ASTNode.ExpressionNode, builder: i
     # Create and return the constant value
     return ir.Constant(target_type, member_value)
 
+def handle_cast(self: "Codegen", node: ASTNode.ExpressionNode, builder: ir.IRBuilder, **kwargs):
+    """
+    Handle type casting expressions like (int)value or (float*)ptr
+    
+    Args:
+        node: The cast node (should have left=expression, value=target_type, op="cast")
+        builder: The LLVM IR builder
+        
+    Returns:
+        The LLVM value representing the casted expression
+    """
+    debug = getattr(self.compiler, 'debug', False)
+    
+    # Extract target type and expression from the cast node
+    if not hasattr(node, 'value') or not hasattr(node, 'left'):
+        raise ValueError(f"Invalid cast node structure: missing value (target_type) or left (expression)")
+    
+    target_type_name = node.value  # The target type is stored in 'value'
+    expression_node = node.left    # The expression to cast is stored in 'left'
+    
+    if debug:
+        print(f"Handling cast to type: {target_type_name}")
+    
+    # Get the target LLVM type
+    target_type_info = Datatypes.get_type_from_string(target_type_name)
+    if not target_type_info:
+        raise ValueError(f"Unknown target type for cast: {target_type_name}")
+    
+    target_llvm_type = Datatypes.get_llvm_type(target_type_name)
+    
+    # Evaluate the expression to be casted
+    source_value = self.handle_expression(expression_node, builder, None, **kwargs)
+    source_type = source_value.type
+    
+    if debug:
+        print(f"Casting from {source_type} to {target_llvm_type}")
+    
+    # If types are already the same, no cast needed
+    if source_type == target_llvm_type:
+        return source_value
+    
+    # Handle different casting scenarios
+    return self._perform_cast(source_value, source_type, target_llvm_type, target_type_info, builder, debug)
+
+
+def _perform_cast(self: "Codegen", source_value, source_type, target_llvm_type, target_type_info, builder: ir.IRBuilder, debug: bool):
+    """
+    Perform the actual LLVM cast operation based on source and target types
+    
+    Args:
+        source_value: The LLVM value to cast
+        source_type: The source LLVM type
+        target_llvm_type: The target LLVM type
+        target_type_info: The target type information object
+        builder: The LLVM IR builder
+        debug: Debug flag
+        
+    Returns:
+        The casted LLVM value
+    """
+    
+    # Pointer casts
+    if isinstance(source_type, ir.PointerType) and isinstance(target_llvm_type, ir.PointerType):
+        if debug:
+            print("Performing pointer-to-pointer cast (bitcast)")
+        return builder.bitcast(source_value, target_llvm_type)
+    
+    # Integer to pointer cast
+    elif isinstance(source_type, ir.IntType) and isinstance(target_llvm_type, ir.PointerType):
+        if debug:
+            print("Performing integer-to-pointer cast (inttoptr)")
+        return builder.inttoptr(source_value, target_llvm_type)
+    
+    # Pointer to integer cast
+    elif isinstance(source_type, ir.PointerType) and isinstance(target_llvm_type, ir.IntType):
+        if debug:
+            print("Performing pointer-to-integer cast (ptrtoint)")
+        return builder.ptrtoint(source_value, target_llvm_type)
+    
+    # Integer to integer cast
+    elif isinstance(source_type, ir.IntType) and isinstance(target_llvm_type, ir.IntType):
+        source_width = source_type.width
+        target_width = target_llvm_type.width
+        
+        if source_width == target_width:
+            # Same width, just bitcast
+            if debug:
+                print(f"Performing same-width integer cast (bitcast)")
+            return builder.bitcast(source_value, target_llvm_type)
+        elif source_width < target_width:
+            # Sign extend or zero extend based on type information
+            is_signed = getattr(target_type_info, 'is_signed', True)  # Default to signed
+            if is_signed:
+                if debug:
+                    print(f"Performing sign extension from {source_width} to {target_width} bits")
+                return builder.sext(source_value, target_llvm_type)
+            else:
+                if debug:
+                    print(f"Performing zero extension from {source_width} to {target_width} bits")
+                return builder.zext(source_value, target_llvm_type)
+        else:
+            # Truncate
+            if debug:
+                print(f"Performing truncation from {source_width} to {target_width} bits")
+            return builder.trunc(source_value, target_llvm_type)
+    
+    # Float to float cast
+    elif isinstance(source_type, (ir.FloatType, ir.DoubleType)) and isinstance(target_llvm_type, (ir.FloatType, ir.DoubleType)):
+        source_width = self._get_float_width(source_type)
+        target_width = self._get_float_width(target_llvm_type)
+        
+        if source_width < target_width:
+            if debug:
+                print("Performing float extension (fpext)")
+            return builder.fpext(source_value, target_llvm_type)
+        elif source_width > target_width:
+            if debug:
+                print("Performing float truncation (fptrunc)")
+            return builder.fptrunc(source_value, target_llvm_type)
+        else:
+            # Same type, no cast needed (shouldn't reach here due to earlier check)
+            return source_value
+    
+    # Integer to float cast
+    elif isinstance(source_type, ir.IntType) and isinstance(target_llvm_type, (ir.FloatType, ir.DoubleType)):
+        is_signed = getattr(target_type_info, 'is_signed', True)
+        if is_signed:
+            if debug:
+                print("Performing signed integer-to-float cast (sitofp)")
+            return builder.sitofp(source_value, target_llvm_type)
+        else:
+            if debug:
+                print("Performing unsigned integer-to-float cast (uitofp)")
+            return builder.uitofp(source_value, target_llvm_type)
+    
+    # Float to integer cast
+    elif isinstance(source_type, (ir.FloatType, ir.DoubleType)) and isinstance(target_llvm_type, ir.IntType):
+        is_signed = getattr(target_type_info, 'is_signed', True)
+        if is_signed:
+            if debug:
+                print("Performing float-to-signed-integer cast (fptosi)")
+            return builder.fptosi(source_value, target_llvm_type)
+        else:
+            if debug:
+                print("Performing float-to-unsigned-integer cast (fptoui)")
+            return builder.fptoui(source_value, target_llvm_type)
+    
+    # Boolean conversions
+    elif isinstance(target_llvm_type, ir.IntType) and target_llvm_type.width == 1:
+        # Cast to boolean (i1)
+        if isinstance(source_type, ir.IntType):
+            if debug:
+                print("Performing integer-to-boolean cast")
+            zero = ir.Constant(source_type, 0)
+            return builder.icmp_ne(source_value, zero)
+        elif isinstance(source_type, (ir.FloatType, ir.DoubleType)):
+            if debug:
+                print("Performing float-to-boolean cast")
+            zero = ir.Constant(source_type, 0.0)
+            return builder.fcmp_one(source_value, zero)  # one = ordered and not equal
+        elif isinstance(source_type, ir.PointerType):
+            if debug:
+                print("Performing pointer-to-boolean cast")
+            null_ptr = ir.Constant(source_type, None)
+            return builder.icmp_ne(source_value, null_ptr)
+    
+    # If we reach here, the cast is not supported
+    raise ValueError(f"Unsupported cast from {source_type} to {target_llvm_type}")
+
+
+def _get_float_width(self: "Codegen", float_type):
+    """
+    Helper method to get the bit width of floating point types
+    
+    Args:
+        float_type: The LLVM floating point type
+        
+    Returns:
+        The bit width of the type
+    """
+    if isinstance(float_type, ir.FloatType):
+        return 32
+    elif isinstance(float_type, ir.DoubleType):
+        return 64
+    else:
+        # For other float types, you might need to add more cases
+        # depending on your compiler's type system
+        raise ValueError(f"Unknown float type: {float_type}")
+    
 def handle_unary_op(self: "Codegen", node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
 
     """

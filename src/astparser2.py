@@ -260,18 +260,39 @@ class ASTParser:
                 op='&'
             )
 
-        # Handle parenthesized expressions
+
         if current._type == TokenType.SEPARATOR and current.value == separators["LPAREN"]:
-            self.next_token()  # Consume the '('
-            expr = self.parse_binary_expression()  # Parse the inner expression
-            
-            # Expect closing parenthesis
-            current = self.current_token()
-            if not current or current.value != separators["RPAREN"]:
-                self.syntax_error("Expected closing parenthesis ')'", current)
-            
-            self.next_token()  # Consume the ')'
-            return expr
+            self.next_token()  # consume '('
+
+            # Peek: check if the next token is a type identifier
+            next_tok = self.current_token()
+            if next_tok and next_tok._type == TokenType.KEYWORD:  # you'll need a TokenType.TYPE
+                # C-style cast: (TYPE)expr
+                type_name = next_tok.value
+                self.next_token()  # consume the type name
+
+                # Expect closing ')'
+                if not self.current_token() or self.current_token().value != separators["RPAREN"]:
+                    self.syntax_error("Expected ')' after type in cast", self.current_token())
+                self.next_token()  # consume ')'
+
+                # Parse the expression being casted
+                expr = self.parse_primary_expression()
+
+                return ASTNode.ExpressionNode(
+                    NodeType.CAST,
+                    left=expr,
+                    value=type_name,
+                    op="cast"
+                )
+            else:
+                # Normal parenthesized expression
+                expr = self.parse_binary_expression()
+                if not self.current_token() or self.current_token().value != separators["RPAREN"]:
+                    self.syntax_error("Expected closing parenthesis ')'", self.current_token())
+                self.next_token()  # consume ')'
+                return expr
+
             
         # Handle literals and identifiers
         elif current._type == TokenType.LITERAL:

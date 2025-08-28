@@ -112,21 +112,19 @@ class Datatypes:
     F32 = "F32"
     
     user_defined_types = {}
-    def __init__(self):
-        self.type_info = {
-        Datatypes.BOOL: {"type": ir.IntType(1), "signed": False},
-        Datatypes.U8: {"type": ir.IntType(8), "signed": False},
-        Datatypes.I8: {"type": ir.IntType(8), "signed": True},
-        Datatypes.U16: {"type": ir.IntType(16), "signed": False},
-        Datatypes.U32: {"type": ir.IntType(32), "signed": False},
-        Datatypes.U64: {"type": ir.IntType(64), "signed": False},
-        Datatypes.I8: {"type": ir.IntType(8), "signed": True},
-        Datatypes.I16: {"type": ir.IntType(16), "signed": True},
-        Datatypes.I32: {"type": ir.IntType(32), "signed": True},
-        Datatypes.I64: {"type": ir.IntType(64), "signed": True},
-        Datatypes.U0: {"type": ir.VoidType(), "signed": False},
-        Datatypes.F32: {"type": ir.FloatType(), "signed": True},
-        Datatypes.F64: {"type": ir.DoubleType(), "signed": True}
+    type_info = {
+        BOOL: {"type": ir.IntType(1), "signed": False},
+        U8: {"type": ir.IntType(8), "signed": False},
+        I8: {"type": ir.IntType(8), "signed": True},
+        U16: {"type": ir.IntType(16), "signed": False},
+        U32: {"type": ir.IntType(32), "signed": False},
+        U64: {"type": ir.IntType(64), "signed": False},
+        I16: {"type": ir.IntType(16), "signed": True},
+        I32: {"type": ir.IntType(32), "signed": True},
+        I64: {"type": ir.IntType(64), "signed": True},
+        U0: {"type": ir.VoidType(), "signed": False},
+        F32: {"type": ir.FloatType(), "signed": True},
+        F64: {"type": ir.DoubleType(), "signed": True}
     }
 
     @classmethod
