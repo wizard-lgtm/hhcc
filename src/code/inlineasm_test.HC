@@ -14,3 +14,10 @@ U64 write(U8* str, U64 len){
     );
     return rax; // return the number of bytes written
 }
+
+U0 main(){
+    U8* str = "hello world\n";
+    str[3] = 'p';
+    U64 len = 14;
+    write(str, len);
+}

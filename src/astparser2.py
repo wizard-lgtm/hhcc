@@ -990,7 +990,16 @@ class ASTParser:
         current_token = self.current_token()
         if not current_token:
             return None
-        
+    
+        # Check for array element assignment by looking ahead
+        if current_token._type == TokenType.LITERAL:
+            # Look ahead to see if this matches pattern: identifier[...] = ...
+            next_token = self.peek_token()
+            
+            if (next_token and next_token.value == separators["LBRACKET"]):
+                # This looks like array assignment
+                return self.parse_array_element_assignment()
+            
         # Handle extern declarations
         if current_token._type == TokenType.KEYWORD and current_token.value == keywords["EXTERN"]:
             return self.parse_extern_declaration()
@@ -1414,6 +1423,46 @@ class ASTParser:
         self.next_token()  # consume ';'
         
         return ASTNode.Enum(enum_name, members)
+    
+    def parse_array_element_assignment(self):
+        """
+        Parse array element assignment: identifier[index] = value;
+        Returns an ArrayElementAssignment node
+        """
+        # Current token should be the array identifier
+        array_name = self.current_token().value
+        self.next_token()  # Consume array identifier
+        
+        # Expect '['
+        if not self.current_token() or self.current_token().value != separators["LBRACKET"]:
+            self.syntax_error("Expected '[' after array name", self.current_token())
+        
+        self.next_token()  # Consume '['
+        
+        # Parse index expression (this could be complex like i++, i+1, etc.)
+        index_expr = self.parse_expression()
+        
+        # Expect ']'
+        if not self.current_token() or self.current_token().value != separators["RBRACKET"]:
+            self.syntax_error("Expected ']' after array index", self.current_token())
+        
+        self.next_token()  # Consume ']'
+        
+        # Expect '='
+        if not self.current_token() or self.current_token().value != operators["ASSIGN"]:
+            self.syntax_error("Expected '=' after array access", self.current_token())
+        
+        self.next_token()  # Consume '='
+        
+        # Parse the value expression
+        value_expr = self.parse_expression()
+        
+        # Expect ';'
+        if self.current_token() and self.current_token().value == separators["SEMICOLON"]:
+            self.next_token()  # Consume ';'
+        
+        return ASTNode.ArrayElementAssignment(array_name, index_expr, value_expr)
+
 
     def parse(self):
         

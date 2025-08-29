@@ -604,3 +604,19 @@ class ASTNode:
 
         def __repr__(self) -> str:
             return self.print_tree()
+    class ArrayElementAssignment:
+        def __init__(self, array_name: str, index_expr: 'ASTNode.ExpressionNode', 
+                    value_expr: 'ASTNode.ExpressionNode'):
+            self.array_name = array_name
+            self.index_expr = index_expr
+            self.value_expr = value_expr
+
+        def print_tree(self, prefix: str = "") -> str:
+            result = f"{prefix}ArrayElementAssignment\n"
+            result += f"{prefix}├── array_name: {self.array_name}\n"
+            result += f"{prefix}├── index: {self.index_expr.print_tree(prefix + '│   ')}"
+            result += f"{prefix}└── value: {self.value_expr.print_tree(prefix + '    ')}"
+            return result
+
+        def __repr__(self) -> str:
+            return self.print_tree()
