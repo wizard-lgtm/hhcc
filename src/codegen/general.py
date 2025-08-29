@@ -4,7 +4,6 @@ from astnodes import *
 from lexer import *
 
 def handle_extern(self, node: ASTNode.Extern, **kwargs):
-    print(node)
     """Handle extern function declarations."""
     # Get function name, return type and parameter information
     func_name = node.declaration.name
@@ -22,7 +21,7 @@ def handle_extern(self, node: ASTNode.Extern, **kwargs):
         param_types.append(param_type)
     
     # Create function type
-    func_type = ir.FunctionType(return_type, param_types, var_arg=(func_name == 'printf'))
+    func_type = ir.FunctionType(return_type, param_types)
     
     # Check if function already exists in the module
     if func_name in self.module.globals:
