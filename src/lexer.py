@@ -365,6 +365,48 @@ class Lexer:
         token = Token(TokenType.LITERAL, f'"{value}"', line, column)
         return token, cursor
 
+    def _handle_char_literal(self, cursor, line, column):
+        """Handle character literals like 'p' or '\n' """
+        start = cursor
+        cursor += 1  # Skip opening quote
+        
+        value = ""
+        if cursor < len(self.source_code):
+            current_char = self.source_code[cursor]
+            
+            if current_char == '\\' and cursor + 1 < len(self.source_code):
+                # Handle escape sequences
+                cursor += 1
+                next_char = self.source_code[cursor]
+                if next_char == 'n':
+                    value += '\n'
+                elif next_char == 't':
+                    value += '\t'
+                elif next_char == 'r':
+                    value += '\r'
+                elif next_char == '\\':
+                    value += '\\'
+                elif next_char == "'":
+                    value += "'"
+                elif next_char == '0':
+                    value += '\0'
+                else:
+                    # Unknown escape sequence, just add both characters
+                    value += '\\' + next_char
+                cursor += 1
+            else:
+                # Regular character
+                value += current_char
+                cursor += 1
+        
+        # Expect closing quote
+        if cursor < len(self.source_code) and self.source_code[cursor] == "'":
+            cursor += 1  # Skip closing quote
+        
+        # Return the character literal with quotes, cursor position, and token
+        token = Token(TokenType.LITERAL, f"'{value}'", line, column)
+        return token, cursor
+
     def _handle_raw_string_literal(self, cursor, line, column):
         """Handle raw string literals like R"(content)" """
         start = cursor
@@ -411,6 +453,14 @@ class Lexer:
                 else:
                     column += 1
                 cursor += 1
+                continue
+    
+            # Handle Character Literals
+            elif current_chr == "'":
+                token, new_cursor = self._handle_char_literal(cursor, line, column)
+                tokens.append(token)
+                column += new_cursor - cursor
+                cursor = new_cursor
                 continue
 
             # Handle Raw String Literals (R"(...)")
