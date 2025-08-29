@@ -878,6 +878,16 @@ def _expression_handle_literal(self: "Codegen", node: ASTNode.ExpressionNode, bu
                             len(node.value) >= 2 and 
                             node.value.startswith('"') and 
                             node.value.endswith('"'))
+
+
+        # Check if this is a char literal (single char in single quotes)
+        
+        is_char_literal = (isinstance(node.value, str) and 
+                  len(node.value) >= 3 and 
+                  node.value.startswith("'") and 
+                  node.value.endswith("'"))
+
+ 
         
         # Infer type if not specified
         if var_type is None:
@@ -904,6 +914,12 @@ def _expression_handle_literal(self: "Codegen", node: ASTNode.ExpressionNode, bu
             if is_string_literal:
                 # String literals are inherently pointers to char arrays
                 return self._create_string_literal(node.value, builder, var_type, pointer_level)
+
+            if is_char_literal:
+                # Convert 'c' → i8
+                char_value = ord(node.value[1])  # node.value = "'c'", so index 1 is the character
+                return ir.Constant(ir.IntType(8), char_value)
+
             
             # Boolean literals (true/false)
             if isinstance(var_type, ir.IntType) and var_type.width == 1:

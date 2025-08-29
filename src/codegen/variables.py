@@ -4,6 +4,8 @@ from astnodes import *
 from lexer import *
 from .symboltable import create_variable_symbol
 
+if TYPE_CHECKING:
+    from .base import Codegen
 
 # Utility functions for pointer level handling
 def count_pointer_level(type_str: str) -> tuple[str, int]:
@@ -209,3 +211,56 @@ def handle_compound_variable_assignment(self, node: ASTNode.CompoundVariableAssi
     for assignment in node.assignments:
         self.handle_variable_assignment(assignment, builder)
     
+def handle_array_element_assignment(self: "Codegen", node: ASTNode.ArrayElementAssignment, builder: ir.IRBuilder, **kwargs):
+    """Handle assignment to an array element."""
+    # Look up the array variable in the symbol table
+    array_symbol = self.symbol_table.lookup(node.array_name)
+    
+    if not array_symbol:
+        raise ValueError(f"Array variable '{node.array_name}' not found in symbol table.")
+    
+    print(f"Array symbol: {array_symbol}")
+    
+    # Get the pointer to the array
+    array_ptr = array_symbol.llvm_value
+    
+    # Determine the element type based on the array/pointer type
+    if isinstance(array_ptr.type.pointee, ir.ArrayType):
+        # This is an actual array type [N x element_type]
+        element_type = array_ptr.type.pointee.element
+        # Get pointer to the specific array element
+        index_value = self.handle_expression(node.index_expr, builder, ir.IntType(64))
+        element_ptr = builder.gep(array_ptr, [ir.Constant(ir.IntType(32), 0), index_value], name=f"{node.array_name}_elem_ptr")
+    elif isinstance(array_ptr.type.pointee, ir.IntType):
+        # This is a pointer to elements (like U8* pointing to a string)
+        element_type = array_ptr.type.pointee
+        # Load the pointer first, then index into it
+        loaded_ptr = builder.load(array_ptr, name=f"load_{node.array_name}")
+        index_value = self.handle_expression(node.index_expr, builder, ir.IntType(64))
+        element_ptr = builder.gep(loaded_ptr, [index_value], name=f"{node.array_name}_elem_ptr")
+    elif isinstance(array_ptr.type.pointee, ir.PointerType):
+        # This is a pointer to pointer (like U8* stored in a variable)
+        # The element type is what the inner pointer points to
+        element_type = array_ptr.type.pointee.pointee
+        # Load the pointer first, then index into it
+        loaded_ptr = builder.load(array_ptr, name=f"load_{node.array_name}")
+        index_value = self.handle_expression(node.index_expr, builder, ir.IntType(64))
+        element_ptr = builder.gep(loaded_ptr, [index_value], name=f"{node.array_name}_elem_ptr")
+    else:
+        raise ValueError(f"Unsupported array/pointer type: {array_ptr.type.pointee}")
+    
+    print(f"Element type: {element_type}")
+    
+    # Evaluate the right-hand side expression with the correct element type
+    value = self.handle_expression(node.value_expr, builder, element_type)
+    
+    print(f"Value type: {value.type}, Element type: {element_type}")
+    
+    # Handle type casting if needed
+    if value.type != element_type:
+        value = self._cast_value(value, element_type, builder)
+    
+    # Store the value in the array element
+    builder.store(value, element_ptr)
+    
+    return element_ptr  # Return pointer to the assigned element
