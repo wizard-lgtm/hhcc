@@ -69,7 +69,6 @@ class Codegen:
                 bound_method = types.MethodType(obj, self)
                 setattr(self, name, bound_method)
                 
-                print(f"Bound function: {name} from module {module.__name__}")
     def __init__(self, compiler: "Compiler"):
         # Initialize the new symbol table
         self.symbol_table = SymbolTable()
