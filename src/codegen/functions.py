@@ -16,14 +16,23 @@ def handle_function_definition(self, node: ASTNode.FunctionDefinition, builder: 
 
     # Parse args
     for param in node_params:
+        # Step 1: get base type
         if param.is_user_typed:
-            print("NOT IMPLEMENTED! user typed parameters")
-        if param.pointer_level > 0:
-            print("NOT IMPLEMENTED, function pointer types")
+            base_type = Datatypes.to_llvm_type(param.var_type)
+        else:
+            base_type = self.type_map[param.var_type]
+
+        # Step 2: apply pointer levels
+        llvm_type = base_type
+        for _ in range(param.pointer_level):
+            llvm_type = llvm_type.as_pointer()
+
+        llvm_params.append(llvm_type)
+        param_types.append(param.var_type + "*" * param.pointer_level)
+
+            
         
-        param_type = self.type_map[param.var_type]
-        llvm_params.append(param_type)
-        param_types.append(param.var_type)
+
     
     # Create the function type and function
     func_type = ir.FunctionType(return_type, llvm_params)
@@ -147,7 +156,7 @@ def handle_function_call(self, node, builder: ir.IRBuilder, var_type=None, **kwa
     
     # Get the expected argument types from the function type
     expected_arg_types = func.function_type.args
-    
+
     # Check if the number of arguments matches
     if len(arguments) != len(expected_arg_types):
         raise ValueError(f"Function {func_name} expects {len(expected_arg_types)} arguments, but {len(arguments)} were provided")
