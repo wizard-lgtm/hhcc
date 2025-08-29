@@ -104,7 +104,6 @@ def handle_variable_declaration(self, node: ASTNode.VariableDeclaration, builder
         # Non-pointer types can be left uninitialized or initialized to zero
         # depending on language semantics
 
-    print(self.symbol_table.get_all_symbols())
     
     return var  # Return the variable pointer
 def handle_variable_assignment(self, node: ASTNode.VariableAssignment, builder: ir.IRBuilder, **kwargs):
