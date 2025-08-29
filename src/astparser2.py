@@ -28,7 +28,11 @@ class ASTParser:
     
     def next_token(self):
         self.index += 1
+        # Skip over comments
+        while self.index < len(self.tokens) and self.tokens[self.index]._type == TokenType.COMMENT:
+            self.index += 1
         return self.current_token()
+
     
     def peek_token(self, offset=1):
         """look ahead at next tokens without consuming them"""
@@ -58,7 +62,6 @@ class ASTParser:
 
 
     def variable_declaration(self, user_typed=False):
-        print(self.current_token())
         var_type = self.current_token()
         self.next_token()  # Consume the type token
         list_of_declarations = []
@@ -244,7 +247,6 @@ class ASTParser:
 
     def parse_primary_expression(self):
         current = self.current_token()
-        print("HI")
         
         if not current:
             self.syntax_error("Unexpected end of input during expression parsing", self.peek_token(-1))
@@ -1270,7 +1272,7 @@ class ASTParser:
         while True:
             # Parse constraint string
             if (not self.current_token() or 
-                self.current_token()._type != TokenType.STRING):
+                self.current_token()._type != TokenType.LITERAL):
                 break
             
             constraint_str = self.current_token().value.strip('"\'')
@@ -1330,7 +1332,7 @@ class ASTParser:
         while True:
             # Parse clobber string
             if (not self.current_token() or 
-                self.current_token()._type != TokenType.STRING):
+                self.current_token()._type != TokenType.LITERAL):
                 break
             
             clobber_str = self.current_token().value.strip('"\'')
