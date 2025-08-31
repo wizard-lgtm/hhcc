@@ -394,14 +394,17 @@ class ASTNode:
             for i, dim in enumerate(self.dimensions):
                 if dim:
                     if i < len(self.dimensions) - 1:
-                        result += f"{prefix}│   ├── {dim.print_tree(prefix + '│   │   ')}"
+                        if hasattr(dim, 'print_tree'):
+                            result += f"{prefix}│   ├── {dim.print_tree(prefix + '│   │   ')}"
                     else:
-                        result += f"{prefix}│   └── {dim.print_tree(prefix + '│       ')}"
+                        if hasattr(dim, 'print_tree'):
+                            result += f"{prefix}│   └── {dim.print_tree(prefix + '│       ')}"
                 else:
                     result += f"{prefix}│   ├── dynamic[]\n"
             
             if self.initialization:
-                result += f"{prefix}└── initialization: {self.initialization.print_tree(prefix + '    ')}"
+                if hasattr(self.initialization, 'print_tree'):
+                    result += f"{prefix}└── initialization: {self.initialization.print_tree(prefix + '    ')}"
             
             return result
 
@@ -418,9 +421,11 @@ class ASTNode:
             if self.elements:
                 for i, element in enumerate(self.elements):
                     if i < len(self.elements) - 1:
-                        result += f"{prefix}├── {element.print_tree(prefix + '│   ')}"
+                        if hasattr(element, 'print_tree'):
+                            result += f"{prefix}├── {element.print_tree(prefix + '│   ')}"
                     else:
-                        result += f"{prefix}└── {element.print_tree(prefix + '    ')}"
+                        if hasattr(element, 'print_tree'):
+                            result += f"{prefix}└── {element.print_tree(prefix + '    ')}"
             else:
                 result += f"{prefix}└── [empty]\n"
                 
