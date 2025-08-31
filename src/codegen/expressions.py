@@ -331,14 +331,16 @@ def handle_primary_expression(self: "Codegen", node: ASTNode.ExpressionNode, bui
             except ValueError:
                 raise ValueError(f"Invalid literal or undefined variable: '{node.value}'")
 
-
-def handle_expression(self: "Codegen", node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
-
+def handle_expression(self: "Codegen", node, builder: ir.IRBuilder, var_type, **kwargs):
     pointer_level = kwargs.get('pointer_level', 0)
-    
+
     if node is None:
         raise ValueError("Node is None, cannot handle expression.")
 
+    # Normalize raw literals into AST nodes
+    if not isinstance(node, ASTNode.ExpressionNode):
+        # Wrap strings, ints, floats, etc.
+        node = ASTNode.ExpressionNode(node_type=NodeType.LITERAL, value=node.value if isinstance(node, Token) else node)
 
     match node.node_type:
         case NodeType.BINARY_OP:
@@ -359,16 +361,16 @@ def handle_expression(self: "Codegen", node: ASTNode.ExpressionNode, builder: ir
         case NodeType.LITERAL:
             return self._expression_handle_literal(node, builder, var_type, pointer_level=pointer_level)
 
-        case NodeType.REFERENCE:
-            return self.handle_pointer(node, builder)
         case NodeType.ENUM_ACCESS:
             return self.handle_enum_access(node, builder, var_type)
+
         case NodeType.CAST:
             return self.handle_cast(node, builder)
 
-
         case _:
             raise ValueError(f"Unsupported expression node type: {node.node_type}")
+
+
 def handle_enum_access(self: "Codegen", node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
     """
     Handle enum access operations like EnumName::MemberName or EnumName.MemberName
