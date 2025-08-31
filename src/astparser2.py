@@ -936,20 +936,25 @@ class ASTParser:
         if self.current_token() and self.current_token().value == operators["ASSIGN"]:
             self.next_token()  # Consume '='
             
-            # Parse array initialization
-            if self.current_token() and self.current_token().value == separators["LBRACE"]:
+            # Parse different types of array initialization
+            current = self.current_token()
+            if current and current.value == separators["LBRACE"]:
+                # Brace initialization: {1, 2, 3}
                 initialization = self.parse_array_initialization()
+            elif current and (current._type== TokenType.LITERAL or current._type == TokenType.LITERAL):
+                # String/char literal: "Hello" or 'A'
+                initialization = ASTNode.ArrayInitialization([current.value])
+                self.next_token()  # Consume literal
             else:
-                self.syntax_error("Expected '{' for array initialization", self.current_token())
+                # Single expression initialization
+                initialization = ASTNode.ArrayInitialization([self.parse_expression()])
         
         # Check semicolon
         self.check_semicolon()
         
         return ASTNode.ArrayDeclaration(base_type, name, dimensions, initialization)
 
-    
     def parse_array_initialization(self):
-
         
         if not self.current_token() or self.current_token().value != separators["LBRACE"]:
             self.syntax_error("Expected '{' to start array initialization", self.current_token())
@@ -968,6 +973,11 @@ class ASTParser:
             # Check for nested array initialization
             if self.current_token() and self.current_token().value == separators["LBRACE"]:
                 elements.append(self.parse_array_initialization())
+            elif self.current_token() and (self.current_token()._type == TokenType.LITERAL or 
+                                        self.current_token()._type == TokenType.LITERAL):
+                # Handle string/char literals within braces: {"Hello", "World"}
+                elements.append(self.current_token().value)
+                self.next_token()  # Consume literal
             else:
                 # Parse regular expression element
                 elements.append(self.parse_expression())
@@ -979,10 +989,15 @@ class ASTParser:
             if self.current_token().value == separators["RBRACE"]:
                 self.next_token()  # Consume '}'
                 break  # End of initialization
-            elif self.current_token().value != separators["COMMA"]:
-                self.syntax_error("Expected ',' or '}' in array initialization", self.current_token())
-            else:
+            elif self.current_token().value == separators["COMMA"]:
                 self.next_token()  # Consume comma
+                
+                # Allow trailing comma - check if next token is closing brace
+                if self.current_token() and self.current_token().value == separators["RBRACE"]:
+                    self.next_token()  # Consume '}'
+                    break
+            else:
+                self.syntax_error("Expected ',' or '}' in array initialization", self.current_token())
         
         return ASTNode.ArrayInitialization(elements)
 
