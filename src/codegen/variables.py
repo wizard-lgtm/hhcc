@@ -1,3 +1,4 @@
+from symtable import Symbol
 from llvmlite import ir, binding
 from typing import TYPE_CHECKING, Dict, Callable, Type
 from astnodes import *
@@ -709,3 +710,114 @@ def _calculate_total_array_size(dimensions: List[int]) -> int:
 def visit_array_declaration(self, node: ASTNode.ArrayDeclaration, builder: ir.IRBuilder):
     """Visitor method for array declarations."""
     return self.handle_array_declaration(node, builder)
+
+
+def decay_array_to_pointer(self, builder: ir.IRBuilder, symbol: Symbol) -> ir.Value:
+    """
+    Convert an array variable reference into a pointer to its first element.
+    Handles array-to-pointer decay semantics (like in C).
+    
+    Args:
+        builder: LLVM IR builder
+        symbol: Symbol representing the array variable
+        
+    Returns:
+        LLVM value representing a pointer to the first element
+    """
+    if not symbol.is_array:
+        raise ValueError(f"Symbol '{symbol.name}' is not an array")
+    
+    # symbol.llvm_value should be something like [N x i8]* from alloca
+    llvm_array_ptr = symbol.llvm_value
+    
+    # Create indices for getelementptr: [0, 0] to get pointer to first element
+    zero = ir.Constant(ir.IntType(32), 0)
+    
+    # Use getelementptr to get pointer to first element
+    # This converts [N x T]* -> T*
+    element_ptr = builder.gep(llvm_array_ptr, [zero, zero], 
+                             inbounds=True, name=f"{symbol.name}_decay")
+    
+    return element_ptr
+
+
+def get_array_element_pointer(self, builder: ir.IRBuilder, symbol: Symbol, 
+                             indices: List[ir.Value]) -> ir.Value:
+    """
+    Get a pointer to a specific element in an array.
+    
+    Args:
+        builder: LLVM IR builder
+        symbol: Symbol representing the array variable
+        indices: List of LLVM values representing array indices
+        
+    Returns:
+        LLVM value representing a pointer to the specified element
+    """
+    if not symbol.is_array:
+        raise ValueError(f"Symbol '{symbol.name}' is not an array")
+    
+    # symbol.llvm_value should be something like [N x i8]* from alloca
+    llvm_array_ptr = symbol.llvm_value
+    
+    # Prepare GEP indices: first index is always 0 (to dereference the pointer to array)
+    # Then add the actual array indices
+    zero = ir.Constant(ir.IntType(32), 0)
+    gep_indices = [zero] + indices
+    
+    # Use getelementptr to get pointer to the specified element
+    element_ptr = builder.gep(llvm_array_ptr, gep_indices, 
+                             inbounds=True, name=f"{symbol.name}_elem_ptr")
+    
+    return element_ptr
+
+
+def handle_array_access(self, node: ASTNode, builder: ir.IRBuilder, **kwargs) -> ir.Value:
+    """
+    Handle array access like arr[index].
+    Returns a pointer to the element for assignment contexts,
+    or the loaded value for expression contexts.
+    """
+    # Get the array symbol
+    array_symbol = self.symbol_table.lookup(node.array_name)
+    if not array_symbol or not array_symbol.is_array:
+        raise ValueError(f"'{node.array_name}' is not an array")
+    
+    # Process the index expression
+    index_value = self.process_node(node.index, builder=builder)
+    
+    # Get pointer to the element
+    element_ptr = self.get_array_element_pointer(builder, array_symbol, [index_value])
+    
+    # If this is being used in an assignment context (lvalue), return the pointer
+    # Otherwise, load the value (rvalue)
+    if kwargs.get('lvalue', False):
+        return element_ptr
+    else:
+        return builder.load(element_ptr, name=f"{node.array_name}_elem")
+
+
+def handle_variable_reference(self, node: ASTNode, builder: ir.IRBuilder, **kwargs) -> ir.Value:
+    """
+    Handle variable references.
+    For arrays, this returns the decayed pointer (unless explicitly requesting lvalue).
+    For regular variables, this returns the loaded value.
+    """
+    symbol = self.symbol_table.lookup(node.name)
+    if not symbol:
+        raise ValueError(f"Undefined variable: {node.name}")
+    
+    # If this is an lvalue context (assignment target), return the pointer/address
+    if kwargs.get('lvalue', False):
+        return symbol.llvm_value
+    
+    # For arrays, decay to pointer unless explicitly disabled
+    if symbol.is_array and not kwargs.get('no_decay', False):
+        return self.decay_array_to_pointer(builder, symbol)
+    
+    # For regular variables, load the value
+    if symbol.pointer_level == 0 and not symbol.is_array:
+        return builder.load(symbol.llvm_value, name=f"{symbol.name}_val")
+    
+    # For pointers, return the pointer value itself
+    return symbol.llvm_value

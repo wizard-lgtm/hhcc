@@ -96,10 +96,10 @@ def handle_function_definition(self, node: ASTNode.FunctionDefinition, builder: 
     return func
 
 
-def handle_function_call(self, node, builder: ir.IRBuilder, var_type=None, **kwargs):
-    """Handle function call with the new symbol table."""
-    # Debug the AST node structure to help understand its format
+# Replace your handle_function_call function in src/codegen/functions.py with this version
 
+def handle_function_call(self, node, builder: ir.IRBuilder, var_type=None, **kwargs):
+    """Handle function call with proper array decay and casting."""
     
     # Handle either dedicated FunctionCall nodes or ExpressionNode with FUNCTION_CALL type
     if isinstance(node, ASTNode.FunctionCall):
@@ -110,7 +110,6 @@ def handle_function_call(self, node, builder: ir.IRBuilder, var_type=None, **kwa
         if hasattr(node, 'name'):
             func_name = node.name
         elif hasattr(node, 'value') and node.value:
-            # Sometimes the function name is stored in value
             func_name = node.value
         elif hasattr(node, 'left') and node.left:
             if hasattr(node.left, 'value'):
@@ -122,18 +121,14 @@ def handle_function_call(self, node, builder: ir.IRBuilder, var_type=None, **kwa
         else:
             raise ValueError("Invalid function call format: function name not found")
         
-        # Extract arguments - handle the various ways they might be stored
+        # Extract arguments
         arguments = []
-        
-        # Check if arguments are stored directly as a property
         if hasattr(node, 'arguments') and node.arguments is not None:
             arguments = node.arguments
-        # Check if arguments are stored in a right property
         elif hasattr(node, 'right') and node.right is not None:
             if isinstance(node.right, list):
                 arguments = node.right
             else:
-                # If right is a single node but represents multiple arguments
                 if hasattr(node.right, 'arguments') and node.right.arguments is not None:
                     arguments = node.right.arguments
                 else:
@@ -167,21 +162,36 @@ def handle_function_call(self, node, builder: ir.IRBuilder, var_type=None, **kwa
         # Process each argument as an expression
         llvm_arg = self.handle_expression(arg, builder, None)
         
-        # Make sure the argument types match - cast if necessary
+        # CRITICAL: Handle array decay for arguments BEFORE any other processing
+        # Check if this argument came from a variable reference that's an array
+        if hasattr(arg, 'node_type') and arg.node_type == NodeType.REFERENCE:
+            # Look up the variable symbol
+            var_name = arg.value if hasattr(arg, 'value') else (arg.name if hasattr(arg, 'name') else None)
+            if var_name:
+                arg_symbol = self.symbol_table.lookup(var_name)
+                if arg_symbol and arg_symbol.is_array:
+                    # Manually perform array decay using GEP
+                    zero = ir.Constant(ir.IntType(32), 0)
+                    element_ptr = builder.gep(arg_symbol.llvm_value, [zero, zero], 
+                                            inbounds=True, name=f"{arg_symbol.name}_decay")
+                    llvm_arg = element_ptr
+        
+        # Get expected parameter type
         expected_type = expected_arg_types[i]
+        
+        # Cast if necessary using your existing casting logic
         if llvm_arg.type != expected_type:
-            # Cast the argument to the expected type
-            if isinstance(expected_type, ir.IntType) and isinstance(llvm_arg.type, ir.IntType):
-                # For integer types, perform bit casting if needed
-                if expected_type.width > llvm_arg.type.width:
-                    llvm_arg = builder.zext(llvm_arg, expected_type)
-                elif expected_type.width < llvm_arg.type.width:
-                    llvm_arg = builder.trunc(llvm_arg, expected_type)
-            # Add more type casting as needed
+            try:
+                # Use your existing _cast_value function from casting.py
+                from .casting import _cast_value
+                llvm_arg = _cast_value(self, llvm_arg, expected_type, builder)
+            except Exception as e:
+                # If casting fails, provide more detailed error
+                raise TypeError(f"Cannot cast argument {i+1} from {llvm_arg.type} to {expected_type} for function {func_name}: {e}")
         
         llvm_args.append(llvm_arg)
     
-    # Before calling, let's log what we're about to do for debugging
+    # Debug output
     if self.compiler.debug:
         print(f"Calling function {func_name} with {len(llvm_args)} arguments")
         for i, arg in enumerate(llvm_args):
@@ -193,6 +203,8 @@ def handle_function_call(self, node, builder: ir.IRBuilder, var_type=None, **kwa
         builder.call(func, llvm_args)
         return None
     else:
+        print("LLVM ARGS:", llvm_args)
+        print("FUNC:", func)
         # For functions that return a value
         result = builder.call(func, llvm_args)
         return result
