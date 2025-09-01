@@ -25,7 +25,9 @@ class Symbol:
                  llvm_type: Any = None, 
                  llvm_value: Optional[ir.Value] = None, 
                  scope_level: int = 0,
-                 pointer_level: int = 0):
+                 pointer_level: int = 0,
+                 array_dimensions: Optional[List[int]] = None):  # NEW
+
         self.name = name
         self.kind = kind
         self.ast_node = ast_node
@@ -34,9 +36,14 @@ class Symbol:
         self.llvm_value = llvm_value  # LLVM value or pointer
         self.scope_level = scope_level
         self.pointer_level = pointer_level  # 0 = not a pointer, 1 = pointer, 2 = double pointer, etc.
+        self.array_dimensions = array_dimensions or []  # NEW
         # Additional data for specific symbol kinds
+
         self.extra_data: Dict[str, Any] = {}
 
+    @property
+    def is_array(self) -> bool:
+        return bool(self.array_dimensions)
     @property
     def is_pointer(self) -> bool:
         """Backward compatibility property."""
@@ -44,7 +51,8 @@ class Symbol:
 
     def __repr__(self) -> str:
         pointer_str = f", ptr_level={self.pointer_level}" if self.pointer_level > 0 else ""
-        return f"Symbol(name='{self.name}', kind={self.kind}, type={self.data_type}, scope={self.scope_level}{pointer_str})"
+        array_str = f", dims={self.array_dimensions}" if self.is_array else ""
+        return f"Symbol(name='{self.name}', kind={self.kind}, type={self.data_type}, scope={self.scope_level}{pointer_str}{array_str})"
 
 
 class Scope:
@@ -229,4 +237,17 @@ def create_type_symbol(name: str, ast_node: Any, llvm_type: Any = None,
                       scope_level: int = 0) -> Symbol:
     """Create a type symbol (class, struct, enum, etc.)."""
     symbol = Symbol(name, SymbolKind.TYPE, ast_node, name, llvm_type, None, scope_level, 0)
+    return symbol
+
+def create_array_symbol(name: str, ast_node: Any, element_type: Any, dimensions: List[int], 
+                        llvm_type: Any = None, llvm_value: Optional[ir.Value] = None, 
+                        scope_level: int = 0) -> Symbol:
+    """
+    Create a symbol representing an array.
+    - element_type: type of the elements (e.g., 'U8', 'I32')
+    - dimensions: list of sizes for each dimension (e.g., [10] for 1D, [3,4] for 2D)
+    """
+    symbol = Symbol(name, SymbolKind.VARIABLE, ast_node, element_type, 
+                    llvm_type, llvm_value, scope_level, pointer_level=0,  # arrays are pointers
+                    array_dimensions=dimensions)
     return symbol

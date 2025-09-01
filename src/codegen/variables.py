@@ -2,7 +2,7 @@ from llvmlite import ir, binding
 from typing import TYPE_CHECKING, Dict, Callable, Type
 from astnodes import *
 from lexer import *
-from .symboltable import create_variable_symbol
+from .symboltable import create_array_symbol, create_variable_symbol
 
 if TYPE_CHECKING:
     from .base import Codegen
@@ -264,3 +264,448 @@ def handle_array_element_assignment(self: "Codegen", node: ASTNode.ArrayElementA
     builder.store(value, element_ptr)
     
     return element_ptr  # Return pointer to the assigned element
+
+def handle_array_declaration(self: "Codegen", node: ASTNode.ArrayDeclaration, builder: ir.IRBuilder, **kwargs):
+    """
+    Handle array declaration with multi-dimensional support.
+    
+    Creates LLVM array types and allocates memory for arrays.
+    Supports both global and local scope allocation.
+    """
+    if self.compiler.debug:
+        print(f"Handling array declaration: {node.name}, base_type: {node.base_type}")
+    
+    # Step 1: Get the base LLVM type
+    base_llvm_type = Datatypes.to_llvm_type(node.base_type)
+    if base_llvm_type is None:
+        raise ValueError(f"Unknown base type: {node.base_type}")
+    
+    # Step 2: Evaluate dimensions to get concrete sizes
+    dimension_sizes = []
+    has_undefined_dimensions = False
+    
+    for dim_expr in node.dimensions:
+        if dim_expr is None:
+            # Mark that we have undefined dimensions - we'll infer from initialization
+            has_undefined_dimensions = True
+            dimension_sizes.append(None)  # Placeholder
+        else:
+            # Evaluate the dimension expression based on ExpressionNode structure
+            if dim_expr.node_type == NodeType.LITERAL:
+                # Direct integer literal
+                size = int(dim_expr.value)
+            else:
+                # Complex expression - evaluate it
+                size_value = self.handle_expression(dim_expr, builder, ir.IntType(64))
+                if isinstance(size_value, ir.Constant):
+                    size = int(size_value.constant)
+                else:
+                    raise ValueError(f"Array dimension must be a compile-time constant, got runtime expression")
+            
+            if size <= 0:
+                raise ValueError(f"Array dimension must be positive, got {size}")
+            
+            dimension_sizes.append(size)
+    
+    # Step 2.5: Handle size inference from initialization
+    if has_undefined_dimensions:
+        if not node.initialization:
+            raise ValueError(f"Array '{node.name}' has undefined dimensions but no initialization to infer size from")
+        
+        # Infer size from initialization
+        dimension_sizes = self._infer_array_dimensions(node.initialization, dimension_sizes)
+        
+        if self.compiler.debug:
+            print(f"Inferred array dimensions: {dimension_sizes}")
+    
+    if self.compiler.debug:
+        print(f"Array dimensions: {dimension_sizes}")
+    
+    # Step 3: Create nested LLVM array type for multi-dimensional arrays
+    # Build from innermost to outermost: [cols x [rows x element_type]]
+    llvm_array_type = base_llvm_type
+    for size in reversed(dimension_sizes):
+        llvm_array_type = ir.ArrayType(llvm_array_type, size)
+    
+    if self.compiler.debug:
+        print(f"Final LLVM array type: {llvm_array_type}")
+    
+    # Step 4: Allocate memory based on scope level
+    array_ptr = None
+    if self.symbol_table.current_scope_level == 0:
+        # Global scope - create global variable
+        global_array = ir.GlobalVariable(self.module, llvm_array_type, name=node.name)
+        global_array.linkage = 'internal'
+        
+        # Initialize global array
+        if node.initialization:
+            # Handle initialization (we'll implement this part next)
+            init_value = self._create_array_initializer(node.initialization, llvm_array_type, dimension_sizes)
+            global_array.initializer = init_value
+        else:
+            # Zero-initialize by default
+            global_array.initializer = ir.Constant(llvm_array_type, None)  # Zero initializer
+        
+        array_ptr = global_array
+    else:
+        # Local scope - allocate on stack
+        array_ptr = builder.alloca(llvm_array_type, name=node.name)
+        
+        # Handle initialization for local arrays
+        if node.initialization:
+            self._initialize_local_array(array_ptr, node.initialization, llvm_array_type, dimension_sizes, builder)
+        # Note: Local arrays can be left uninitialized or we could zero them out
+        # depending on language semantics
+    
+    # Step 5: Create array symbol and add to symbol table
+    array_symbol = create_array_symbol(
+        name=node.name,
+        ast_node=node,
+        element_type=node.base_type,  # Base element type
+        dimensions=dimension_sizes,   # Concrete dimension sizes
+        llvm_type=llvm_array_type,   # The full array type
+        llvm_value=array_ptr,        # Pointer to the array
+        scope_level=self.symbol_table.current_scope_level
+    )
+    
+    # Add to symbol table
+    self.symbol_table.define(array_symbol)
+    
+    if self.compiler.debug:
+        print(f"Array symbol created: {array_symbol}")
+    
+    return array_ptr
+
+
+def _create_array_initializer(self: "Codegen", initialization: ASTNode.ArrayInitialization, 
+                             array_type: ir.ArrayType, dimensions: List[int]) -> ir.Constant:
+    """
+    Create LLVM constant initializer for global arrays.
+    
+    Args:
+        initialization: The ArrayInitialization node
+        array_type: The LLVM array type
+        dimensions: List of dimension sizes
+    
+    Returns:
+        LLVM constant for initialization
+    """
+    if not initialization or not initialization.values:
+        # Return zero initializer
+        return ir.Constant(array_type, None)
+    
+    # Handle 1D arrays
+    if len(dimensions) == 1:
+        element_type = array_type.element
+        init_values = []
+        
+        for i, value_expr in enumerate(initialization.elements):
+            if i >= dimensions[0]:
+                break  # Don't exceed array bounds
+            
+            # Handle both regular elements and string literals
+            if (len(initialization.elements) == 1 and 
+                initialization.elements[0].node_type == NodeType.LITERAL and
+                isinstance(initialization.elements[0].value, str)):
+                # This is a string literal initialization
+                string_val = initialization.elements[0].value
+                # Convert string to individual character constants
+                for j, char in enumerate(string_val):
+                    if j >= dimensions[0] - 1:  # Leave space for null terminator
+                        break
+                    const_val = ir.Constant(element_type, ord(char))
+                    init_values.append(const_val)
+                # Add null terminator
+                if len(init_values) < dimensions[0]:
+                    init_values.append(ir.Constant(element_type, 0))
+                break  # We've processed the entire string
+            else:
+                # Regular element initialization
+                if value_expr.node_type == NodeType.LITERAL:
+                    if element_type == ir.IntType(8):  # U8
+                        const_val = ir.Constant(element_type, int(value_expr.value))
+                    elif element_type == ir.IntType(32):  # U32/I32
+                        const_val = ir.Constant(element_type, int(value_expr.value))
+                    elif element_type == ir.IntType(64):  # U64/I64
+                        const_val = ir.Constant(element_type, int(value_expr.value))
+                    elif element_type == ir.FloatType():  # F32
+                        const_val = ir.Constant(element_type, float(value_expr.value))
+                    elif element_type == ir.DoubleType():  # F64
+                        const_val = ir.Constant(element_type, float(value_expr.value))
+                    else:
+                        raise ValueError(f"Unsupported element type for array initialization: {element_type}")
+                else:
+                    # For complex expressions, we might need to evaluate them at compile time
+                    # This is more complex and might require constant folding
+                    raise ValueError("Complex expressions in global array initialization not yet supported")
+                
+                init_values.append(const_val)
+        
+        # Pad with zeros if not enough values provided
+        zero_val = ir.Constant(element_type, 0)
+        while len(init_values) < dimensions[0]:
+            init_values.append(zero_val)
+        
+        return ir.Constant(array_type, init_values)
+    
+    else:
+        # Multi-dimensional arrays - more complex, would need recursive handling
+        # For now, return zero initializer
+        return ir.Constant(array_type, None)
+
+
+def _initialize_local_array(self: "Codegen", array_ptr: ir.Value, 
+                           initialization: ASTNode.ArrayInitialization,
+                           array_type: ir.ArrayType, dimensions: List[int], 
+                           builder: ir.IRBuilder) -> None:
+    """Initialize a local array with runtime values."""
+    
+    if not initialization or not initialization.elements:
+        return  # Leave uninitialized or zero-fill if desired
+    
+    # Handle 1D arrays
+    if len(dimensions) == 1:
+        element_type = array_type.element
+        
+        # Check if this is a single string literal initialization
+        first_elem = initialization.elements[0]
+        is_string_literal = (
+            isinstance(first_elem, str) or  # Direct string case
+            (hasattr(first_elem, 'node_type') and 
+             first_elem.node_type == NodeType.LITERAL and
+             isinstance(first_elem.value, str))  # AST node case
+        )
+        
+        if len(initialization.elements) == 1 and is_string_literal:
+            
+            # Handle string literal initialization
+            if isinstance(first_elem, str):
+                string_val = first_elem
+            else:
+                string_val = first_elem.value
+            
+            if self.compiler.debug:
+                print(f"Initializing array with string literal: '{string_val}'")
+            
+            # Store each character individually
+            for i, char in enumerate(string_val):
+                if i >= dimensions[0] - 1:  # Leave space for null terminator
+                    break
+                
+                # Get pointer to array element
+                index_const = ir.Constant(ir.IntType(32), i)
+                element_ptr = builder.gep(array_ptr, [ir.Constant(ir.IntType(32), 0), index_const], 
+                                          name=f"{array_ptr.name}_elem_{i}")
+                
+                # Store the character
+                char_value = ir.Constant(element_type, ord(char))
+                builder.store(char_value, element_ptr)
+            
+            # Add null terminator if there's space
+            if len(string_val) < dimensions[0]:
+                null_index = ir.Constant(ir.IntType(32), len(string_val))
+                null_ptr = builder.gep(array_ptr, [ir.Constant(ir.IntType(32), 0), null_index], 
+                                       name=f"{array_ptr.name}_null")
+                null_char = ir.Constant(element_type, 0)
+                builder.store(null_char, null_ptr)
+        
+        else:
+            # Handle regular element-by-element initialization
+            for i, elem in enumerate(initialization.elements):
+                if i >= dimensions[0]:
+                    break  # Avoid overflow
+                
+                # Get pointer to array element
+                index_const = ir.Constant(ir.IntType(32), i)
+                element_ptr = builder.gep(array_ptr, [ir.Constant(ir.IntType(32), 0), index_const], 
+                                          name=f"{array_ptr.name}_elem_{i}")
+                
+                # Evaluate the element expression
+                if isinstance(elem, ASTNode.ExpressionNode):
+                    value = self.handle_expression(elem, builder, element_type)
+                    if value.type != element_type:
+                        value = self._cast_value(value, element_type, builder)
+                    builder.store(value, element_ptr)
+                else:
+                    raise TypeError(f"Unsupported array element type: {type(elem)}")
+    
+    else:
+        if self.compiler.debug:
+            print("Multi-dimensional array initialization not yet implemented")
+
+
+def _create_array_initializer(self: "Codegen", initialization: ASTNode.ArrayInitialization, 
+                             array_type: ir.ArrayType, dimensions: List[int]) -> ir.Constant:
+    """
+    Create LLVM constant initializer for global arrays.
+    
+    Args:
+        initialization: The ArrayInitialization node
+        array_type: The LLVM array type
+        dimensions: List of dimension sizes
+    
+    Returns:
+        LLVM constant for initialization
+    """
+    if not initialization or not initialization.elements:
+        # Return zero initializer
+        return ir.Constant(array_type, None)
+    
+    # Handle 1D arrays
+    if len(dimensions) == 1:
+        element_type = array_type.element
+        init_values = []
+        
+        # Check if this is a single string literal initialization
+        first_elem = initialization.elements[0]
+        is_string_literal = (
+            isinstance(first_elem, str) or  # Direct string case
+            (hasattr(first_elem, 'node_type') and 
+             first_elem.node_type == NodeType.LITERAL and
+             isinstance(first_elem.value, str))  # AST node case
+        )
+        
+        if len(initialization.elements) == 1 and is_string_literal:
+            
+            # Handle string literal initialization
+            if isinstance(first_elem, str):
+                string_val = first_elem
+            else:
+                string_val = first_elem.value
+            
+            if self.compiler.debug:
+                print(f"Creating global string initializer for: '{string_val}'")
+            
+            # Convert string to individual character constants
+            for i, char in enumerate(string_val):
+                if i >= dimensions[0] - 1:  # Leave space for null terminator
+                    break
+                const_val = ir.Constant(element_type, ord(char))
+                init_values.append(const_val)
+            
+            # Add null terminator if there's space
+            if len(init_values) < dimensions[0]:
+                init_values.append(ir.Constant(element_type, 0))
+            
+            # Pad with zeros if needed
+            zero_val = ir.Constant(element_type, 0)
+            while len(init_values) < dimensions[0]:
+                init_values.append(zero_val)
+        
+        else:
+            # Handle regular element initialization
+            for i, value_expr in enumerate(initialization.elements):
+                if i >= dimensions[0]:
+                    break  # Don't exceed array bounds
+                
+                # Regular element initialization
+                if value_expr.node_type == NodeType.LITERAL:
+                    if element_type == ir.IntType(8):  # U8
+                        const_val = ir.Constant(element_type, int(value_expr.value))
+                    elif element_type == ir.IntType(32):  # U32/I32
+                        const_val = ir.Constant(element_type, int(value_expr.value))
+                    elif element_type == ir.IntType(64):  # U64/I64
+                        const_val = ir.Constant(element_type, int(value_expr.value))
+                    elif element_type == ir.FloatType():  # F32
+                        const_val = ir.Constant(element_type, float(value_expr.value))
+                    elif element_type == ir.DoubleType():  # F64
+                        const_val = ir.Constant(element_type, float(value_expr.value))
+                    else:
+                        raise ValueError(f"Unsupported element type for array initialization: {element_type}")
+                else:
+                    # For complex expressions, we might need to evaluate them at compile time
+                    # This is more complex and might require constant folding
+                    raise ValueError("Complex expressions in global array initialization not yet supported")
+                
+                init_values.append(const_val)
+            
+            # Pad with zeros if not enough values provided
+            zero_val = ir.Constant(element_type, 0)
+            while len(init_values) < dimensions[0]:
+                init_values.append(zero_val)
+        
+        return ir.Constant(array_type, init_values)
+    
+    else:
+        # Multi-dimensional arrays - more complex, would need recursive handling
+        # For now, return zero initializer
+        return ir.Constant(array_type, None)
+
+
+def _infer_array_dimensions(self: "Codegen", initialization: ASTNode.ArrayInitialization, 
+                           dimension_template: List[Optional[int]]) -> List[int]:
+    """
+    Infer array dimensions from initialization data.
+    
+    Args:
+        initialization: The ArrayInitialization node
+        dimension_template: List with None for dimensions to infer, concrete values for known dims
+    
+    Returns:
+        List of concrete dimension sizes
+    """
+    if not initialization:
+        raise ValueError("Cannot infer array dimensions without initialization")
+    
+    result_dimensions = []
+    
+    # Handle the first (and possibly only) dimension
+    if len(dimension_template) >= 1 and dimension_template[0] is None:
+        # Infer first dimension from initialization elements
+        if hasattr(initialization, 'elements') and initialization.elements:
+            first_elem = initialization.elements[0]
+
+            # Check if this is a string literal - handle both AST node and direct string cases
+            if isinstance(first_elem, str):
+                # Direct string case
+                string_value = first_elem
+                inferred_size = len(string_value) + 1
+                if self.compiler.debug:
+                    print(f"Inferred string array size: {inferred_size} for '{string_value}'")
+            
+            elif (hasattr(first_elem, 'node_type') and 
+                  first_elem.node_type == NodeType.LITERAL and
+                  isinstance(first_elem.value, str)):
+                
+                # AST node with string literal
+                string_value = first_elem.value
+                inferred_size = len(string_value) + 1
+                if self.compiler.debug:
+                    print(f"Inferred string array size: {inferred_size} for '{string_value}'")
+            
+            else:
+                # Regular array like {1, 2, 3}
+                inferred_size = len(initialization.elements)
+                if self.compiler.debug:
+                    print(f"Inferred array size from {inferred_size} elements")
+
+        else:
+            raise ValueError("Cannot infer array size from initialization - no elements found")
+        
+        result_dimensions.append(inferred_size)
+    else:
+        # Use the provided dimension
+        result_dimensions.append(dimension_template[0])
+    
+    # For multi-dimensional arrays, add the rest of the dimensions
+    for i in range(1, len(dimension_template)):
+        if dimension_template[i] is None:
+            # For now, only support inferring the first dimension
+            raise ValueError("Can only infer the first dimension of multi-dimensional arrays")
+        result_dimensions.append(dimension_template[i])
+    
+    return result_dimensions
+
+# Helper function to calculate total array size
+def _calculate_total_array_size(dimensions: List[int]) -> int:
+    """Calculate total number of elements in a multi-dimensional array."""
+    total = 1
+    for dim in dimensions:
+        total *= dim
+    return total
+
+
+# Example usage in your AST visitor pattern:
+def visit_array_declaration(self, node: ASTNode.ArrayDeclaration, builder: ir.IRBuilder):
+    """Visitor method for array declarations."""
+    return self.handle_array_declaration(node, builder)

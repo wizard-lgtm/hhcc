@@ -133,6 +133,7 @@ class Codegen:
             ASTNode.CompoundVariableAssigment: self.handle_compound_variable_assignment,
             ASTNode.Enum: self.handle_enum,
             ASTNode.ArrayElementAssignment: self.handle_array_element_assignment,
+            ASTNode.ArrayDeclaration: self.handle_array_declaration
             
         }
 
