@@ -410,7 +410,7 @@ class ASTParser:
             type_info = self.try_parse_type_in_cast()
             if not type_info:
                 # Not a valid type, backtrack
-                self.token_index = start_position
+                self.index = start_position  # Fixed: was self.token_index
                 return None
             
             type_name, pointer_level = type_info
@@ -418,7 +418,7 @@ class ASTParser:
             # Expect closing ')'
             if not self.current_token() or self.current_token().value != separators["RPAREN"]:
                 # Not a valid cast, backtrack
-                self.token_index = start_position
+                self.index = start_position  # Fixed: was self.token_index
                 return None
             
             self.next_token()  # consume ')'
@@ -438,7 +438,7 @@ class ASTParser:
             
         except Exception:
             # If any error occurs, backtrack and return None
-            self.token_index = start_position
+            self.index = start_position  # Fixed: was self.token_index
             return None
 
     def try_parse_type_in_cast(self):
@@ -602,7 +602,6 @@ class ASTParser:
         return ASTNode.FunctionDefinition(func_name, func_return_type, body, parameters, has_variadic_args)
         
     def if_statement(self):
-
         # Parse condition
         next_token = self.next_token()
         if not (next_token._type == TokenType.SEPARATOR and next_token.value == separators["LPAREN"]):
@@ -617,12 +616,17 @@ class ASTParser:
         
         self.next_token()  # Consume the closing parenthesis
         
-        # Parse the if block
-        if not self.current_token() or self.current_token().value != separators["LBRACE"]:
-            self.syntax_error("Expected '{' to start if block", self.current_token())
+        # Parse the if body - check if it's a block or single statement
+        current = self.current_token()
+        if current and current.value == separators["LBRACE"]:
+            # It's a block - parse normally
+            if_body = self.block()
+        else:
+            # It's a single statement - parse one statement and wrap it in a Block
+            statement = self.parse_statement(inside_block=True)
+            if_body = ASTNode.Block([statement])
         
-        block = self.block()
-        else_block = None
+        else_body = None
         
         # Check for optional else
         if self.current_token() and self.current_token()._type == TokenType.KEYWORD and self.current_token().value == keywords["ELSE"]:
@@ -631,15 +635,21 @@ class ASTParser:
             # Check if it's an else-if or a simple else
             if self.current_token() and self.current_token()._type == TokenType.KEYWORD and self.current_token().value == keywords["IF"]:
                 # Handle else-if by recursively calling if_statement
-                else_block = self.if_statement()
+                # Wrap the nested if statement in a block
+                nested_if = self.if_statement()
+                else_body = ASTNode.Block([nested_if])
             else:
-                # Parse simple else block
-                if not self.current_token() or self.current_token().value != separators["LBRACE"]:
-                    self.syntax_error("Expected '{' to start else block", self.current_token())
-                
-                else_block = self.block()
+                # Parse simple else body - check if it's a block or single statement
+                current = self.current_token()
+                if current and current.value == separators["LBRACE"]:
+                    # It's a block - parse normally
+                    else_body = self.block()
+                else:
+                    # It's a single statement - parse one statement and wrap it in a Block
+                    statement = self.parse_statement(inside_block=True)
+                    else_body = ASTNode.Block([statement])
         
-        return ASTNode.IfStatement(condition, block, else_block)
+        return ASTNode.IfStatement(condition, if_body, else_body)
     def while_loop(self):
         self.next_token()
         condition = self.parse_expression()
@@ -1147,6 +1157,14 @@ class ASTParser:
 
     def variable_decrement(self):
         node =  ASTNode.VariableDecrement(self.current_token().value)
+        self.next_token()  # Consume the variable name
+        self.next_token()  # Consume the variable name
+        self.check_semicolon()
+        return node
+    
+    
+    def variable_increment(self):
+        node =  ASTNode.VariableIncrement(self.current_token().value)
         self.next_token()  # Consume the variable name
         self.next_token()  # Consume the variable name
         self.check_semicolon()
