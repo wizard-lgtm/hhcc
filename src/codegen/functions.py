@@ -163,19 +163,29 @@ def handle_function_call(self, node, builder: ir.IRBuilder, var_type=None, **kwa
         llvm_arg = self.handle_expression(arg, builder, None)
         
         # CRITICAL: Handle array decay for arguments BEFORE any other processing
-        # Check if this argument came from a variable reference that's an array
+        expected_type = expected_arg_types[i]
+
+        # Case 1: Explicit variable reference to array
         if hasattr(arg, 'node_type') and arg.node_type == NodeType.REFERENCE:
-            # Look up the variable symbol
-            var_name = arg.value if hasattr(arg, 'value') else (arg.name if hasattr(arg, 'name') else None)
+            var_name = getattr(arg, "value", getattr(arg, "name", None))
             if var_name:
                 arg_symbol = self.symbol_table.lookup(var_name)
-                if arg_symbol and arg_symbol.is_array:
-                    # Manually perform array decay using GEP
+                if arg_symbol and arg_symbol.is_array and isinstance(expected_type, ir.PointerType):
                     zero = ir.Constant(ir.IntType(32), 0)
-                    element_ptr = builder.gep(arg_symbol.llvm_value, [zero, zero], 
-                                            inbounds=True, name=f"{arg_symbol.name}_decay")
-                    llvm_arg = element_ptr
-        
+                    llvm_arg = builder.gep(arg_symbol.llvm_value, [zero, zero], inbounds=True, name=f"{arg_symbol.name}_decay")
+
+        # Case 2: General array literal (like string constants)
+        elif isinstance(llvm_arg.type, ir.types.ArrayType) and isinstance(expected_type, ir.PointerType):
+            # If it's an array *value*, put it in memory first
+            array_type = llvm_arg.type
+            alloca = builder.alloca(array_type, name="tmp_array")
+            builder.store(llvm_arg, alloca)
+            llvm_arg = alloca
+
+            # Now perform decay: pointer to first element
+            zero = ir.Constant(ir.IntType(32), 0)
+            llvm_arg = builder.gep(llvm_arg, [zero, zero], inbounds=True, name="decay")
+
         # Get expected parameter type
         expected_type = expected_arg_types[i]
         
