@@ -371,8 +371,82 @@ def handle_expression(self: "Codegen", node, builder: ir.IRBuilder, var_type, **
         case NodeType.POSTFIX_OP:
             return self.handle_postfix_op(node, builder, var_type)
 
+        case NodeType.ARRAY_ACCESS:
+            return handle_array_access(self, node, builder, var_type)
+
         case _:
             raise ValueError(f"Unsupported expression node type: {node.node_type}")
+
+def handle_array_access(self: "Codegen", node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
+    """
+    Handle array access operations like arr[index]
+    
+    Args:
+        node: The array access node (should have left=array_name, right=index)
+        builder: The LLVM IR builder
+        var_type: The expected type of the expression
+        
+    Returns:
+        The LLVM value representing the array element
+    """
+    debug = getattr(self.compiler, 'debug', False)
+    
+    if debug:
+        print(f"Handling array access")
+    
+    # Extract array and index from the node
+    if not hasattr(node, 'left') or not hasattr(node, 'right'):
+        raise ValueError(f"Invalid array access node structure: missing left (array) or right (index)")
+    
+    array_node = node.left
+    index_node = node.right
+    
+    # Get the array variable
+    if array_node.node_type == NodeType.LITERAL and array_node.value in self.symbol_table:
+        array_symbol = self.symbol_table.lookup(array_node.value)
+        if not array_symbol:
+            raise ValueError(f"Array variable '{array_node.value}' not found")
+        
+        array_ptr = array_symbol.llvm_value
+        
+        if debug:
+            print(f"Array symbol: {array_symbol}")
+            print(f"Array type: {array_symbol.data_type}")
+    else:
+        # Handle more complex array expressions (like struct field arrays, etc.)
+        array_ptr = self.handle_expression(array_node, builder, None, **kwargs)
+    
+    # Evaluate the index expression
+    index_value = self.handle_expression(index_node, builder, ir.IntType(32), **kwargs)
+    
+    if debug:
+        print(f"Index value type: {index_value.type}")
+    
+    # Ensure index is the right type (i32)
+    if index_value.type != ir.IntType(32):
+        if isinstance(index_value.type, ir.IntType):
+            if index_value.type.width < 32:
+                index_value = builder.zext(index_value, ir.IntType(32), name="index_zext")
+            elif index_value.type.width > 32:
+                index_value = builder.trunc(index_value, ir.IntType(32), name="index_trunc")
+        else:
+            raise ValueError(f"Array index must be an integer type, got {index_value.type}")
+    
+    # Get the element pointer using GEP
+    # For arrays, we need two indices: [0, index] where 0 is for the array itself
+    zero = ir.Constant(ir.IntType(32), 0)
+    element_ptr = builder.gep(array_ptr, [zero, index_value], name="array_elem_ptr")
+    
+    if debug:
+        print(f"Element pointer type: {element_ptr.type}")
+    
+    # Load the element value
+    element_value = builder.load(element_ptr, name="array_elem_load")
+    
+    if debug:
+        print(f"Element value type: {element_value.type}")
+    
+    return element_value
 
 
 def handle_enum_access(self: "Codegen", node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
@@ -428,6 +502,80 @@ def handle_enum_access(self: "Codegen", node: ASTNode.ExpressionNode, builder: i
     
     # Create and return the constant value
     return ir.Constant(target_type, member_value)
+
+
+
+def handle_array_access(self: "Codegen", node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
+    """
+    Handle array access operations like arr[index]
+    
+    Args:
+        node: The array access node (should have left=array_name, right=index)
+        builder: The LLVM IR builder
+        var_type: The expected type of the expression
+        
+    Returns:
+        The LLVM value representing the array element
+    """
+    debug = getattr(self.compiler, 'debug', False)
+    
+    if debug:
+        print(f"Handling array access")
+    
+    # Extract array and index from the node
+    if not hasattr(node, 'left') or not hasattr(node, 'right'):
+        raise ValueError(f"Invalid array access node structure: missing left (array) or right (index)")
+    
+    array_node = node.left
+    index_node = node.right
+    
+    # Get the array variable
+    if array_node.node_type == NodeType.LITERAL and array_node.value in self.symbol_table:
+        array_symbol = self.symbol_table.lookup(array_node.value)
+        if not array_symbol:
+            raise ValueError(f"Array variable '{array_node.value}' not found")
+        
+        array_ptr = array_symbol.llvm_value
+        
+        if debug:
+            print(f"Array symbol: {array_symbol}")
+            print(f"Array type: {array_symbol.data_type}")
+    else:
+        # Handle more complex array expressions (like struct field arrays, etc.)
+        array_ptr = self.handle_expression(array_node, builder, None, **kwargs)
+    
+    # Evaluate the index expression
+    index_value = self.handle_expression(index_node, builder, ir.IntType(32), **kwargs)
+    
+    if debug:
+        print(f"Index value type: {index_value.type}")
+    
+    # Ensure index is the right type (i32)
+    if index_value.type != ir.IntType(32):
+        if isinstance(index_value.type, ir.IntType):
+            if index_value.type.width < 32:
+                index_value = builder.zext(index_value, ir.IntType(32), name="index_zext")
+            elif index_value.type.width > 32:
+                index_value = builder.trunc(index_value, ir.IntType(32), name="index_trunc")
+        else:
+            raise ValueError(f"Array index must be an integer type, got {index_value.type}")
+    
+    # Get the element pointer using GEP
+    # For arrays, we need two indices: [0, index] where 0 is for the array itself
+    zero = ir.Constant(ir.IntType(32), 0)
+    element_ptr = builder.gep(array_ptr, [zero, index_value], name="array_elem_ptr")
+    
+    if debug:
+        print(f"Element pointer type: {element_ptr.type}")
+    
+    # Load the element value
+    element_value = builder.load(element_ptr, name="array_elem_load")
+    
+    if debug:
+        print(f"Element value type: {element_value.type}")
+    
+    return element_value
+
 
 def handle_cast(self: "Codegen", node: ASTNode.ExpressionNode, builder: ir.IRBuilder, **kwargs):
     """
@@ -1354,7 +1502,7 @@ def handle_postfix_op(self: "Codegen", node: ASTNode.ExpressionNode, builder: ir
         var_ptr = self.symbol_table[operand.value]
         
         # Load the current value
-        current_value = builder.load(var_ptr, name=f"load_{operand.value}")
+        current_value = builder.load(var_ptr.llvm_value, name=f"load_{operand.value}")
         
         # Perform the increment/decrement
         if op == '++':
@@ -1365,7 +1513,8 @@ def handle_postfix_op(self: "Codegen", node: ASTNode.ExpressionNode, builder: ir
             raise ValueError(f"Unsupported postfix operator: {op}")
         
         # Store the new value back
-        builder.store(new_value, var_ptr)
+        builder.store(new_value, var_ptr.llvm_value)
+
         
         # Return the original value (postfix semantics)
         return current_value

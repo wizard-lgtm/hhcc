@@ -397,7 +397,7 @@ class ASTParser:
             return node
             
         # Handle unary operators
-        elif current._type == TokenType.OPERATOR and current.value in ['+', '-', '!']:
+        elif current._type == TokenType.OPERATOR and current.value in ['+', '-', '!', '~']:
             op = current.value
             self.next_token()  # Consume the operator
             operand = self.parse_primary_expression()
