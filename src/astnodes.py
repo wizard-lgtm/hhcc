@@ -34,6 +34,7 @@ class NodeType(Enum):
     EXTERN = auto()
     ENUM_ACCESS = auto()
     CAST = auto()
+    POSTFIX_OP = auto()
     
 
 

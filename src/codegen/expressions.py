@@ -318,6 +318,8 @@ def handle_primary_expression(self: "Codegen", node: ASTNode.ExpressionNode, bui
         return self.handle_pointer(node, builder)
     elif node.node_type == NodeType.BINARY_OP:
         return self.handle_binary_expression(node, builder, var_type)
+    elif node.node_type == NodeType.POSTFIX_OP:
+        return self.handle_postfix_op(node, builder, var_type)
     elif node.node_type == NodeType.LITERAL:
         # First check if this is actually a variable reference
         if node.value in self.symbol_table:
@@ -366,6 +368,8 @@ def handle_expression(self: "Codegen", node, builder: ir.IRBuilder, var_type, **
 
         case NodeType.CAST:
             return self.handle_cast(node, builder)
+        case NodeType.POSTFIX_OP:
+            return self.handle_postfix_op(node, builder, var_type)
 
         case _:
             raise ValueError(f"Unsupported expression node type: {node.node_type}")
@@ -1334,3 +1338,72 @@ def _evaluate_enum_constant(self, expr):
                 return None
     
     return None 
+
+# New handler for postfix operations
+def handle_postfix_op(self: "Codegen", node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type):
+    """
+    Handle postfix increment (++) and decrement (--) operations.
+    Returns the original value before the operation.
+    """
+    operand = node.left
+    op = node.op
+    
+    # The operand should be a variable or addressable expression
+    if operand.node_type == NodeType.LITERAL and operand.value in self.symbol_table:
+        # Simple variable case
+        var_ptr = self.symbol_table[operand.value]
+        
+        # Load the current value
+        current_value = builder.load(var_ptr, name=f"load_{operand.value}")
+        
+        # Perform the increment/decrement
+        if op == '++':
+            new_value = builder.add(current_value, ir.Constant(var_type, 1), name="postfix_inc")
+        elif op == '--':
+            new_value = builder.sub(current_value, ir.Constant(var_type, 1), name="postfix_dec")
+        else:
+            raise ValueError(f"Unsupported postfix operator: {op}")
+        
+        # Store the new value back
+        builder.store(new_value, var_ptr)
+        
+        # Return the original value (postfix semantics)
+        return current_value
+        
+    elif operand.node_type == NodeType.ARRAY_ACCESS:
+        # Array element case: arr[index]++
+        array_node = operand.left
+        index_node = operand.right
+        
+        # Get the array pointer
+        if array_node.node_type == NodeType.LITERAL and array_node.value in self.symbol_table:
+            array_ptr = self.symbol_table[array_node.value]
+        else:
+            raise ValueError(f"Complex array expressions not supported in postfix operations")
+        
+        # Evaluate the index
+        index_value = self.handle_expression(index_node, builder, ir.IntType(32))
+        
+        # Get the element pointer
+        element_ptr = builder.gep(array_ptr, [ir.Constant(ir.IntType(32), 0), index_value], 
+                                name=f"arr_elem_ptr")
+        
+        # Load current value
+        current_value = builder.load(element_ptr, name="current_elem_value")
+        
+        # Perform the operation
+        if op == '++':
+            new_value = builder.add(current_value, ir.Constant(var_type, 1), name="postfix_inc")
+        elif op == '--':
+            new_value = builder.sub(current_value, ir.Constant(var_type, 1), name="postfix_dec")
+        else:
+            raise ValueError(f"Unsupported postfix operator: {op}")
+        
+        # Store the new value back
+        builder.store(new_value, element_ptr)
+        
+        # Return the original value
+        return current_value
+        
+    else:
+        raise ValueError(f"Postfix operation not supported on expression type: {operand.node_type}")

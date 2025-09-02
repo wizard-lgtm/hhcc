@@ -285,10 +285,25 @@ class ASTParser:
             )
             self.next_token()  # Consume the token
             
-            # Check for function calls, array indexing, or struct access
+            # Check for postfix operations, function calls, array indexing, or struct access
             while self.current_token():
+                current_token = self.current_token()
+                
+                # Handle postfix increment/decrement (++, --)
+                if (current_token._type == TokenType.OPERATOR and 
+                    current_token.value in ['++', '--']):
+                    op = current_token.value
+                    self.next_token()  # Consume the postfix operator
+                    
+                    # Create a postfix operation node
+                    node = ASTNode.ExpressionNode(
+                        NodeType.POSTFIX_OP,
+                        left=node,  # The operand
+                        op=op  # The postfix operator
+                    )
+                    
                 # Handle function calls with parentheses
-                if self.current_token()._type == TokenType.SEPARATOR and self.current_token().value == separators["LPAREN"]:
+                elif current_token._type == TokenType.SEPARATOR and current_token.value == separators["LPAREN"]:
                     args = []
                     self.next_token()  # Consume the '('
                     
@@ -323,7 +338,7 @@ class ASTParser:
                     )
                     
                 # Handle array indexing with brackets
-                elif self.current_token()._type == TokenType.SEPARATOR and self.current_token().value == separators["LBRACKET"]:
+                elif current_token._type == TokenType.SEPARATOR and current_token.value == separators["LBRACKET"]:
                     self.next_token()  # Consume the '['
                     index_expr = self.parse_expression()  # Parse the index expression
                     
@@ -342,7 +357,7 @@ class ASTParser:
                     )
                 
                 # Handle struct field access with dot
-                elif self.current_token()._type == TokenType.SEPARATOR and self.current_token().value == separators["DOT"]:
+                elif current_token._type == TokenType.SEPARATOR and current_token.value == separators["DOT"]:
                     self.next_token()  # Consume the '.'
                     
                     # Expect field name
@@ -360,7 +375,7 @@ class ASTParser:
                         op="."  # Use dot to denote struct access
                     )
                 # Handle enum access with scope resolution operator (::)
-                elif self.current_token()._type == TokenType.SEPARATOR and self.current_token().value == separators["SCOPE"]:  # Assuming SCOPE = "::"
+                elif current_token._type == TokenType.SEPARATOR and current_token.value == separators["SCOPE"]:  # Assuming SCOPE = "::"
                     self.next_token()  # Consume the '::'
 
                     if not self.current_token() or self.current_token()._type != TokenType.LITERAL:
@@ -377,7 +392,7 @@ class ASTParser:
                         op="::"
                     )
                 else:
-                    break  # Exit loop if no more function calls, array indexing, or struct access
+                    break  # Exit loop if no more postfix operations
             
             return node
             
