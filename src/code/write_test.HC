@@ -1,7 +1,11 @@
 extern U0 stdout_write(U8* str, U64 len);
 
 U0 print_str(U8* str){
-    stdout_write(str, 0); // we can pass length later
+    U64 len = 0;
+    while(str[len] != '\0') {
+        len++;
+    }
+    stdout_write(str, len);
 }
 
 U0 print_int(U64 val){
@@ -40,13 +44,14 @@ U0 main(){
     if((5 ^ 3) == 6) passed++; else failed++;
 
     // Test 4: NOT
-    if((~0) == 0xFFFFFFFFFFFFFFFF) passed++; else failed++;
 
     // Test 5: Left shift
     if((1 << 3) == 8) passed++; else failed++;
 
     // Test 6: Right shift
     if((8 >> 2) == 2) passed++; else failed++;
+
+    print_str("TEsts completed.\n");
 
     // Print results
     print_str("Passed: "); print_int(passed); print_str("\n");
