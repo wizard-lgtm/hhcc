@@ -213,8 +213,9 @@ def handle_function_call(self, node, builder: ir.IRBuilder, var_type=None, **kwa
         builder.call(func, llvm_args)
         return None
     else:
-        print("LLVM ARGS:", llvm_args)
-        print("FUNC:", func)
+        if(self.compiler.debug):
+            print("LLVM ARGS:", llvm_args)
+            print("FUNC:", func)
         # For functions that return a value
         result = builder.call(func, llvm_args)
         return result

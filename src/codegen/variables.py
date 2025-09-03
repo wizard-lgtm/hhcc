@@ -220,7 +220,6 @@ def handle_array_element_assignment(self: "Codegen", node: ASTNode.ArrayElementA
     if not array_symbol:
         raise ValueError(f"Array variable '{node.array_name}' not found in symbol table.")
     
-    print(f"Array symbol: {array_symbol}")
     
     # Get the pointer to the array
     array_ptr = array_symbol.llvm_value
@@ -250,12 +249,10 @@ def handle_array_element_assignment(self: "Codegen", node: ASTNode.ArrayElementA
     else:
         raise ValueError(f"Unsupported array/pointer type: {array_ptr.type.pointee}")
     
-    print(f"Element type: {element_type}")
     
     # Evaluate the right-hand side expression with the correct element type
     value = self.handle_expression(node.value_expr, builder, element_type)
     
-    print(f"Value type: {value.type}, Element type: {element_type}")
     
     # Handle type casting if needed
     if value.type != element_type:
