@@ -7,7 +7,7 @@
 
 ![holy-holy-c-logo](https://github.com/user-attachments/assets/5010cd99-f253-40c3-b643-3f3e86480729)
 
-Holy Holy C is the superset of Holy-C.
+Holy Holy C a language inspired by Holy-C.
 
 In the memory of Terry A. Davis: https://www.youtube.com/watch?v=NYClgSGzWnI
 
@@ -16,8 +16,12 @@ remy clarke said python is kinda suitable for compiler development. it works tho
 ## Features
 
 - LLVM-based: Compile to any target.
-- Full Holy-C syntax support
-- Class Methods & New Features
+- Base level Holy-C syntax support
+- C ABI Support
+- Class Methods
+- Auto Enums
+- Auto importings
+- Builtin macro functions
 - Cross platform libc (Future planned)
 
 ## Current Status
