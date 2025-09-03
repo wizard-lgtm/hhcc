@@ -54,7 +54,8 @@ sudo apt install python3-llvmlite
 
 # Testing
 
-python3 src/compiler.py src/code/test.HC -da -S -emit-llvm -o output.ll
+python3 src/compiler.py src/code/inlineasm_test.HC -o test
+./test
 
 ## Contribution
 
