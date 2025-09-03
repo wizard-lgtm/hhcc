@@ -8,10 +8,6 @@ if TYPE_CHECKING:
     from .base import Codegen
 
 def map_constraint_to_type(self, constraint: str) -> ir.Type:
-    """
-    Map inline assembly constraints to LLVM IR types.
-    Focus on proper register allocation and type compatibility.
-    """
     # Strip output constraint prefix if present
     original_constraint = constraint
     if constraint.startswith("="):
@@ -28,6 +24,11 @@ def map_constraint_to_type(self, constraint: str) -> ir.Type:
         'D': ir.IntType(64),  # RDI
         'r': ir.IntType(64),  # Any general purpose register
         'q': ir.IntType(64),  # Any register accessible as 8-bit
+        # Extended constraint names that Clang uses
+        'ax': ir.IntType(64), # RAX
+        'di': ir.IntType(64), # RDI
+        'si': ir.IntType(64), # RSI
+        'dx': ir.IntType(64), # RDX
     }
     
     if constraint in register_constraints:
@@ -62,39 +63,28 @@ def load_variable_value(self: "Codegen", variable_name: str, builder: ir.IRBuild
     # If the symbol's LLVM value is a pointer (alloca result), load it
     if isinstance(llvm_value.type, ir.PointerType):
         loaded_value = builder.load(llvm_value, name=f"{variable_name}_loaded")
-        print(f"Loaded value for {variable_name}: {loaded_value} (type: {loaded_value.type})")
+        if self.compiler.debug:
+            print(f"Loaded value for {variable_name}: {loaded_value} (type: {loaded_value.type})")
         return loaded_value
     else:
         # Direct value - just return it
-        print(f"Direct value for {variable_name}: {llvm_value} (type: {llvm_value.type})")
+        if self.compiler.debug:
+            print(f"Direct value for {variable_name}: {llvm_value} (type: {llvm_value.type})")
         return llvm_value
 
 def handle_inline_asm(self: "Codegen", node: ASTNode.InlineAsm, builder: ir.IRBuilder, **kwargs) -> Optional[ir.Value]:
-    """
-    Handle inline assembly code generation with proper constraint and register handling.
-    
-    Key fixes:
-    1. Proper value loading from symbol table
-    2. Correct constraint string formatting
-    3. Better type matching for register constraints
-    4. Proper handling of output constraints
-    """
-    print(f"Handling inline assembly: '{node.assembly_code}'")
-    print(f"Input constraints: {node.input_constraints}")
-    print(f"Output constraints: {node.output_constraints}")
-    print(f"Clobber list: {node.clobber_list}")
-    
-    # Collect input values and types
+    # Collect input values and types - like Clang does
     input_values = []
     arg_types = []
     
+    # Process input constraints and collect actual values
     for i, constraint_info in enumerate(node.input_constraints):
         if isinstance(constraint_info, dict) and 'variable' in constraint_info:
             constraint = constraint_info['constraint']
             variable = constraint_info['variable']
             
             try:
-                # Load the actual value from the symbol table
+                # Load the actual value from the symbol table (like Clang)
                 value = load_variable_value(self, variable, builder)
                 
                 # Get expected type for this constraint
@@ -107,15 +97,12 @@ def handle_inline_asm(self: "Codegen", node: ASTNode.InlineAsm, builder: ir.IRBu
                             value = builder.zext(value, expected_type, name=f"{variable}_ext")
                         elif value.type.width > expected_type.width:
                             value = builder.trunc(value, expected_type, name=f"{variable}_trunc")
-                        print(f"Type converted {variable}: {value.type} -> {expected_type}")
                     # For pointer to integer conversion (if needed)
                     elif isinstance(value.type, ir.PointerType) and isinstance(expected_type, ir.IntType):
                         value = builder.ptrtoint(value, expected_type, name=f"{variable}_ptrtoint")
-                        print(f"Pointer to int conversion {variable}: {value.type}")
                 
                 input_values.append(value)
                 arg_types.append(value.type)
-                print(f"Input {i}: {variable} = {value} (constraint: {constraint})")
                 
             except Exception as e:
                 raise ValueError(f"Error processing input variable '{variable}': {e}")
@@ -137,32 +124,63 @@ def handle_inline_asm(self: "Codegen", node: ASTNode.InlineAsm, builder: ir.IRBu
             output_constraint = output_info
         
         ret_type = map_constraint_to_type(self, output_constraint)
-        print(f"Output constraint: {output_constraint}, return type: {ret_type}")
+        if (self.compiler.debug):
+            print(f"Output constraint: {output_constraint}, return type: {ret_type}")
     
     # Create function type for the inline assembly
     asm_func_type = ir.FunctionType(ret_type, arg_types)
-    print(f"Function type: {asm_func_type}")
+    if (self.compiler.debug):
+        print(f"Function type: {asm_func_type}")
     
-    # Build constraint string - this is critical for proper register allocation
+    # Build constraint string using Clang's format - this is the key fix!
     constraints = []
     
-    # Add output constraints first
+    # Add output constraints first (like Clang does)
     for constraint_info in node.output_constraints:
         if isinstance(constraint_info, dict):
             constraint = constraint_info['constraint']
         else:
             constraint = constraint_info
-        constraints.append(constraint)
+            
+        # Convert single-letter constraints to Clang's {reg} format for clarity
+        if len(constraint) == 2 and constraint.startswith('='):
+            reg_letter = constraint[1]
+            if reg_letter == 'a':
+                constraints.append("={ax}")
+            elif reg_letter == 'D':
+                constraints.append("={di}")
+            elif reg_letter == 'S':
+                constraints.append("={si}")
+            elif reg_letter == 'd':
+                constraints.append("={dx}")
+            else:
+                constraints.append(constraint)
+        else:
+            constraints.append(constraint)
     
-    # Add input constraints
+    # Add input constraints (like Clang does)
     for constraint_info in node.input_constraints:
         if isinstance(constraint_info, dict):
             constraint = constraint_info['constraint']
         else:
             constraint = constraint_info
-        constraints.append(constraint)
+            
+        # Convert single-letter constraints to Clang's {reg} format for clarity
+        if len(constraint) == 1:
+            if constraint == 'a':
+                constraints.append("{ax}")
+            elif constraint == 'D':
+                constraints.append("{di}")
+            elif constraint == 'S':
+                constraints.append("{si}")
+            elif constraint == 'd':
+                constraints.append("{dx}")
+            else:
+                constraints.append(constraint)
+        else:
+            constraints.append(constraint)
     
-    # Add clobber constraints
+    # Add clobber constraints (like Clang does)
     for clobber in node.clobber_list:
         # Format clobbers properly - they need to be wrapped in ~{}
         if not clobber.startswith('~'):
@@ -171,10 +189,9 @@ def handle_inline_asm(self: "Codegen", node: ASTNode.InlineAsm, builder: ir.IRBu
             constraints.append(clobber)
     
     constraint_string = ",".join(constraints)
-    print(f"Final constraint string: '{constraint_string}'")
     
     try:
-        # Create the inline assembly
+        # Create the inline assembly (like Clang does)
         inline_asm = ir.InlineAsm(
             asm_func_type,
             node.assembly_code,
@@ -182,15 +199,13 @@ def handle_inline_asm(self: "Codegen", node: ASTNode.InlineAsm, builder: ir.IRBu
             side_effect=node.is_volatile,
         )
         
-        print(f"Created inline asm: {inline_asm}")
         
-        # Call the inline assembly
+        # Call the inline assembly with loaded values (like Clang does)
         if input_values:
             result = builder.call(inline_asm, input_values, name="asm_result")
         else:
             result = builder.call(inline_asm, [], name="asm_result")
         
-        print(f"Assembly call result: {result}")
         
         # Handle output variables - store the result back if needed
         if output_variables and result is not None and not isinstance(ret_type, ir.VoidType):
@@ -198,13 +213,11 @@ def handle_inline_asm(self: "Codegen", node: ASTNode.InlineAsm, builder: ir.IRBu
                 symbol = self.symbol_table.lookup(var_name)
                 if symbol and symbol.llvm_value:
                     if isinstance(symbol.llvm_value.type, ir.PointerType):
-                        # Store to the variable
+                        # Store to the variable (like Clang does)
                         builder.store(result, symbol.llvm_value)
-                        print(f"Stored result to {var_name}")
                     else:
                         # Update the symbol directly (less common case)
                         symbol.llvm_value = result
-                        print(f"Updated symbol {var_name} with result")
         
         return result if not isinstance(ret_type, ir.VoidType) else None
         
@@ -216,33 +229,3 @@ def handle_inline_asm(self: "Codegen", node: ASTNode.InlineAsm, builder: ir.IRBu
         print(f"Input values: {input_values}")
         raise RuntimeError(f"Failed to create inline assembly: {e}")
 
-def debug_print_ir_context(builder: ir.IRBuilder, function: ir.Function) -> None:
-    """
-    Helper function to print debug information about the current IR context.
-    """
-    print("=== IR Context Debug ===")
-    print(f"Current function: {function.name}")
-    print(f"Current block: {builder.block.name}")
-    print("Function arguments:")
-    for i, arg in enumerate(function.args):
-        print(f"  {i}: {arg} (type: {arg.type})")
-    print("======================")
-
-# Additional helper for constraint validation
-def validate_inline_asm_constraints(constraints: List[str], input_count: int, output_count: int) -> bool:
-    """
-    Validate that inline assembly constraints are properly formatted.
-    """
-    if len(constraints) != (input_count + output_count):
-        print(f"Warning: Constraint count mismatch. Expected {input_count + output_count}, got {len(constraints)}")
-        return False
-    
-    for i, constraint in enumerate(constraints):
-        if i < output_count and not constraint.startswith('='):
-            print(f"Warning: Output constraint {i} should start with '=': {constraint}")
-            return False
-        elif i >= output_count and constraint.startswith('='):
-            print(f"Warning: Input constraint {i} should not start with '=': {constraint}")
-            return False
-    
-    return True
