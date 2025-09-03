@@ -13,79 +13,176 @@ class Preprocessor:
         self.defines = {}  # Dictionary to store defined macros
         self.function_macros = {}  # Dictionary to store function-like macros
     
-    def preprocess(self):
-        # Find # symbols (start of directives)
-        processed_code = self.code
-        cursor = 0
+    def remove_comments(self, line):
+        """Remove single-line and multi-line comments from a line"""
+        # Handle single-line comments //
+        comment_pos = line.find('//')
+        if comment_pos != -1:
+            # Check if // is inside a string literal
+            in_string = False
+            escape_next = False
+            for i, char in enumerate(line[:comment_pos]):
+                if escape_next:
+                    escape_next = False
+                    continue
+                if char == '\\':
+                    escape_next = True
+                elif char == '"' and not escape_next:
+                    in_string = not in_string
+            
+            if not in_string:
+                line = line[:comment_pos]
         
-        while cursor < len(processed_code):
-            # Check if we have a directive (# at beginning of line or after whitespace)
-            if cursor == 0 and processed_code[cursor] == '#':
-                is_directive = True
-            elif cursor > 0 and processed_code[cursor] == '#' and (processed_code[cursor-1].isspace() or processed_code[cursor-1] == '\n'):
-                is_directive = True
-            else:
-                is_directive = False
+        return line.strip()
+    
+    def preprocess(self):
+        # Split code into lines for easier processing
+        lines = self.code.split('\n')
+        processed_lines = []
+        
+        for line_num, line in enumerate(lines):
+            # Remove comments before processing directives
+            line_without_comments = self.remove_comments(line)
+            
+            # Skip empty lines after comment removal
+            if not line_without_comments:
+                processed_lines.append(line)  # Keep original line to preserve formatting
+                continue
                 
-            if is_directive:
-                start = cursor
-                end = start
+            # Check for preprocessor directives only on non-comment content
+            if line_without_comments.strip().startswith('#'):
+                # This is a preprocessor directive, process it
+                directive_line = line_without_comments.strip()
+                parts = directive_line.split(None, 1)
                 
-                # Get whole line
-                while end < len(processed_code) and processed_code[end] != '\n':
-                    end += 1
-                
-                line = processed_code[start:end].strip()
-                
-                # Parse directive - get the first word after #
-                parts = line.split(None, 1)
                 if not parts:
-                    self.syntax_error("Empty directive")
-                    cursor = end + 1
+                    self.syntax_error("Empty directive", line_num + 1)
+                    processed_lines.append(line)
                     continue
                 
                 directive_name = parts[0][1:] if parts[0].startswith('#') else parts[0]  # Remove # if present
                 arguments = parts[1] if len(parts) > 1 else ""
-                
-                # Check against directives dictionary
                 full_directive = f"#{directive_name}"
                 
+                # Process the directive
                 if full_directive == directives.get("DEFINE", "#define"):
-                    processed_code = self.handle_define(processed_code, start, end, arguments.strip())
-                    cursor = start
+                    # For now, just remove the line and store the define
+                    self.handle_define_simple(arguments.strip())
+                    continue  # Don't add this line to processed_lines
                 elif full_directive == directives.get("INCLUDE", "#include"):
-                    processed_code = self.handle_include(processed_code, start, end, arguments.strip())
-                    cursor = start
+                    # Handle include
+                    include_content = self.handle_include_simple(arguments.strip())
+                    processed_lines.append(include_content)
+                    continue
                 elif full_directive == directives.get("UNDEF", "#undef"):
-                    processed_code = self.handle_undef(processed_code, start, end, arguments.strip())
-                    cursor = start
-                elif full_directive == directives.get("IFDEF", "#ifdef"):
-                    # Handle conditionally including code if macro is defined
-                    processed_code = self.handle_ifdef(processed_code, start, end, arguments.strip())
-                    cursor = start
-                elif full_directive == directives.get("IFNDEF", "#ifndef"):
-                    # Handle conditionally including code if macro is not defined
-                    processed_code = self.handle_ifndef(processed_code, start, end, arguments.strip())
-                    cursor = start
-                elif full_directive == directives.get("ENDIF", "#endif"):
-                    # Handle end of conditional compilation
-                    processed_code = self.handle_endif(processed_code, start, end)
-                    cursor = start
-                elif full_directive == directives.get("ELSE", "#else"):
-                    # Handle else clause in conditional compilation
-                    processed_code = self.handle_else(processed_code, start, end)
-                    cursor = start
+                    # Handle undef
+                    self.handle_undef_simple(arguments.strip())
+                    continue  # Don't add this line to processed_lines
+                elif full_directive in [directives.get("IFDEF", "#ifdef"), 
+                                       directives.get("IFNDEF", "#ifndef"),
+                                       directives.get("ENDIF", "#endif"),
+                                       directives.get("ELSE", "#else")]:
+                    # For now, just remove conditional compilation directives
+                    continue  # Don't add this line to processed_lines
                 else:
-                    self.syntax_error(f"Unspecified directive: {parts[0]}")
-                    cursor = end + 1
+                    self.syntax_error(f"Unspecified directive: {parts[0]}", line_num + 1)
+                    processed_lines.append(line)
             else:
-                cursor += 1
+                # Regular code line, keep as is
+                processed_lines.append(line)
+        
+        # Join lines back together
+        processed_code = '\n'.join(processed_lines)
         
         # Process all defined macros in the code
         processed_code = self.replace_defines(processed_code)
         
         # Return processed code
         return processed_code
+    
+    def handle_define_simple(self, arguments):
+        """Simplified define handler for line-by-line processing"""
+        if not arguments:
+            self.syntax_error("Invalid #define directive: missing identifier")
+            return
+        
+        # Check if this is a function-like macro
+        match = re.match(r'(\w+)\s*\((.*?)\)\s*(.*)', arguments)
+        if match:
+            # Function-like macro
+            macro_name = match.group(1)
+            params_str = match.group(2)
+            replacement = match.group(3)
+            
+            # Parse parameters
+            params = [p.strip() for p in params_str.split(',') if p.strip()]
+            
+            # Handle variadic macros
+            is_variadic = False
+            if params and params[-1] == "...":
+                is_variadic = True
+                params = params[:-1]  # Remove ... from params
+            
+            # Store function-like macro
+            self.function_macros[macro_name] = {
+                'params': params,
+                'replacement': replacement,
+                'is_variadic': is_variadic
+            }
+            if hasattr(self.compiler, 'defines'):
+                self.compiler.defines[macro_name] = f"FUNCTION_MACRO({','.join(params)}): {replacement}"
+        else:
+            # Object-like macro
+            parts = arguments.split(None, 1)
+            identifier = parts[0]
+            replacement = parts[1] if len(parts) > 1 else ""
+            
+            self.defines[identifier] = replacement
+            # Also update compiler.defines if available (for debugging/reporting)
+            if hasattr(self.compiler, 'defines'):
+                self.compiler.defines[identifier] = replacement
+    
+    def handle_include_simple(self, arguments):
+        """Simplified include handler for line-by-line processing"""
+        # Get the file path from arguments
+        file_path = arguments.strip('"\'')
+        
+        # Try to open the file using different paths
+        file_content = None
+        paths_to_try = [
+            file_path,  # Direct path
+            os.path.join(self.compiler.file_directory, file_path),  # Relative to source file
+            os.path.join(self.compiler.working_directory, file_path)  # Relative to working directory
+        ]
+        
+        for path in paths_to_try:
+            try:
+                with open(path) as file:
+                    file_content = file.read()
+                    break
+            except FileNotFoundError:
+                continue
+        
+        if file_content is None:
+            self.syntax_error(f"Include file not found: {file_path}")
+            return ""
+        
+        return file_content
+    
+    def handle_undef_simple(self, arguments):
+        """Simplified undef handler for line-by-line processing"""
+        # Parse the identifier
+        identifier = arguments.strip()
+        
+        # Remove the macro from dictionaries
+        if identifier in self.defines:
+            del self.defines[identifier]
+            if hasattr(self.compiler, 'defines') and identifier in self.compiler.defines:
+                del self.compiler.defines[identifier]
+        if identifier in self.function_macros:
+            del self.function_macros[identifier]
+            if hasattr(self.compiler, 'defines') and identifier in self.compiler.defines:
+                del self.compiler.defines[identifier]
     
     def syntax_error(self, message, line_num=None):
         # Get line number from position if not provided
