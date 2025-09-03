@@ -9,7 +9,7 @@ from lexer import *
 from astparser2 import *
 from preprocessor import Preprocessor
 from target import Target
-from codegen import Codegen
+from codegen.base import Codegen
 from linker import Linker  # Import the new Linker class
 
 import platform 
@@ -31,7 +31,7 @@ class Compiler:
     def __init__(self, file, debug=False, dump_ast=False, dump_tokens=False, dump_defines=False, 
                  dump_preprocessed=False, dump_llvmir=False, triple=None, target=None, output_file=None,
                  emit_llvm=False, compile_only=False, link_libs=None, lib_paths=None, object_files=None):
-        self.version = "0.0.10"  
+        self.version = "0.1.0"  
         self.file = os.path.abspath(file)
         self.file_directory = os.path.dirname(self.file)
         self.working_directory = os.getcwd()
@@ -307,10 +307,9 @@ def compile(self):
     print("Done!")
     return nodes
 
-# Update the parse_args function to include the new command line arguments
 def parse_args():
     parser = argparse.ArgumentParser(description="Holy HolyC Compiler")
-    parser.add_argument("file", help="Source file to compile")
+    parser.add_argument("file", nargs='?', help="Source file to compile")
     parser.add_argument("-d", "--debug", action="store_true", help="Enable debugging output")
     parser.add_argument("-da", "--dump-ast", action="store_true", help="Dump the AST tree")
     parser.add_argument("-dt", "--dump-tokens", action="store_true", help="Dump the token list")
@@ -329,16 +328,25 @@ def parse_args():
     parser.add_argument("-L", "--lib-path", action="append", dest="lib_paths", help="Library search path", default=[])
     parser.add_argument("--obj", action="append", dest="object_files", help="Object file to link", default=[])
     parser.add_argument("--use-clang", action="store_true", help="Use clang for linking (if available)")
+    
+    # List targets option
+    parser.add_argument("--list-targets", action="store_true", help="List all available target architectures, OS, vendors, and ABIs")
 
     return parser.parse_args()
 
-def debug_print(self, message:str):
-    if self.debug:
-        print(f"DEBUG: {message}")
-
-# Update the main function to include the new parameters
+# Update the main function to handle list-targets
 if __name__ == "__main__":
     args = parse_args()
+
+    # Handle list-targets command
+    if args.list_targets:
+        Target.list_targets()
+        exit(0)
+
+    # Check if file argument is provided when not listing targets
+    if not args.file:
+        print("Error: Source file is required unless using --list-targets")
+        exit(1)
 
     # Parse the target argument if provided
     target = None
@@ -348,6 +356,7 @@ if __name__ == "__main__":
             target = Target.from_string(args.target)
         except ValueError as e:
             print(f"Error parsing target: {e}")
+            print("Use --list-targets to see available options")
             exit(1)
 
     # Create the compiler instance with the parsed arguments
@@ -367,6 +376,5 @@ if __name__ == "__main__":
         link_libs=args.link_libs,
         lib_paths=args.lib_paths,
         object_files=args.object_files,
-
     )
     compiler.compile()

@@ -33,6 +33,8 @@ class NodeType(Enum):
     ARRAY_INITIALIZATION = auto()
     EXTERN = auto()
     ENUM_ACCESS = auto()
+    CAST = auto()
+    POSTFIX_OP = auto()
     
 
 
@@ -393,14 +395,17 @@ class ASTNode:
             for i, dim in enumerate(self.dimensions):
                 if dim:
                     if i < len(self.dimensions) - 1:
-                        result += f"{prefix}│   ├── {dim.print_tree(prefix + '│   │   ')}"
+                        if hasattr(dim, 'print_tree'):
+                            result += f"{prefix}│   ├── {dim.print_tree(prefix + '│   │   ')}"
                     else:
-                        result += f"{prefix}│   └── {dim.print_tree(prefix + '│       ')}"
+                        if hasattr(dim, 'print_tree'):
+                            result += f"{prefix}│   └── {dim.print_tree(prefix + '│       ')}"
                 else:
                     result += f"{prefix}│   ├── dynamic[]\n"
             
             if self.initialization:
-                result += f"{prefix}└── initialization: {self.initialization.print_tree(prefix + '    ')}"
+                if hasattr(self.initialization, 'print_tree'):
+                    result += f"{prefix}└── initialization: {self.initialization.print_tree(prefix + '    ')}"
             
             return result
 
@@ -417,9 +422,11 @@ class ASTNode:
             if self.elements:
                 for i, element in enumerate(self.elements):
                     if i < len(self.elements) - 1:
-                        result += f"{prefix}├── {element.print_tree(prefix + '│   ')}"
+                        if hasattr(element, 'print_tree'):
+                            result += f"{prefix}├── {element.print_tree(prefix + '│   ')}"
                     else:
-                        result += f"{prefix}└── {element.print_tree(prefix + '    ')}"
+                        if hasattr(element, 'print_tree'):
+                            result += f"{prefix}└── {element.print_tree(prefix + '    ')}"
             else:
                 result += f"{prefix}└── [empty]\n"
                 
@@ -599,6 +606,22 @@ class ASTNode:
                     result += f"{prefix}    {connector} {name} = {expr}\n"
             else:
                 result += f"{prefix}└── members: []\n"
+            return result
+
+        def __repr__(self) -> str:
+            return self.print_tree()
+    class ArrayElementAssignment:
+        def __init__(self, array_name: str, index_expr: 'ASTNode.ExpressionNode', 
+                    value_expr: 'ASTNode.ExpressionNode'):
+            self.array_name = array_name
+            self.index_expr = index_expr
+            self.value_expr = value_expr
+
+        def print_tree(self, prefix: str = "") -> str:
+            result = f"{prefix}ArrayElementAssignment\n"
+            result += f"{prefix}├── array_name: {self.array_name}\n"
+            result += f"{prefix}├── index: {self.index_expr.print_tree(prefix + '│   ')}"
+            result += f"{prefix}└── value: {self.value_expr.print_tree(prefix + '    ')}"
             return result
 
         def __repr__(self) -> str:

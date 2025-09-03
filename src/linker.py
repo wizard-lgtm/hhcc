@@ -60,6 +60,7 @@ class Linker:
         # Find essential LLVM tools
         self.llc = self._find_executable("llc")
         self.llvm_link = self._find_executable("llvm-link")
+        self.ld_lld = self._find_executable("ld.lld")
         
         # Prefer clang for linking if available, fall back to gcc or link.exe
         self.clang = self._find_executable("clang")
@@ -75,6 +76,7 @@ class Linker:
         if self.compiler.debug:
             print(f"Using llc: {self.llc}")
             print(f"Using llvm-link: {self.llvm_link}")
+            print(f"Using ld.lld: {self.ld_lld}")
             print(f"Using linker: {self.linker}")
             
         # Verify we have the necessary tools
@@ -100,6 +102,12 @@ class Linker:
                 
         # Try to find it in PATH
         return shutil.which(name)
+    
+    def is_bare_metal_target(self) -> bool:
+        """Check if the target is a bare-metal target."""
+        if not self.compiler.target:
+            return False
+        return self.compiler.target.os == 'none'
     
     def add_object_file(self, obj_file: str):
         """Add an object file to be linked."""
@@ -127,14 +135,17 @@ class Linker:
         obj_file = os.path.splitext(ir_file)[0] + ".o"
         
         # Use llc to compile LLVM IR to an object file
-        cmd = [self.llc, "-filetype=obj", "-relocation-model=pic", ir_file, "-o", obj_file]
+        cmd = [self.llc, "-filetype=obj", ir_file, "-o", obj_file]
 
+        # Add target triple if available
         if self.compiler.target and self.compiler.target.triple:
             cmd.extend(["-mtriple", self.compiler.target.triple])
 
-        
-        if self.compiler.target and self.compiler.target.triple:
-            cmd.extend(["-mtriple", self.compiler.target.triple])
+        # For bare-metal targets, use static relocation model
+        if self.is_bare_metal_target():
+            cmd.extend(["-relocation-model=static"])
+        else:
+            cmd.extend(["-relocation-model=pic"])
         
         if self.compiler.debug:
             print(f"Executing command: {' '.join(cmd)}")
@@ -169,6 +180,48 @@ class Linker:
         
         return output_ir
     
+    def link_bare_metal(self) -> str:
+        """
+        Link object files for bare-metal targets using ld.lld directly.
+        """
+        if not self.ld_lld:
+            raise RuntimeError("ld.lld not found. Cannot link bare-metal targets.")
+        
+        cmd = [self.ld_lld]
+        
+        # Add object files
+        cmd.extend(self.object_files)
+        
+        # Set output file
+        cmd.extend(["-o", self.output_file])
+        
+        # Bare-metal specific flags
+        cmd.extend([
+            "--no-dynamic-linker",  # No dynamic linker for bare-metal
+            "--static",             # Static linking only
+            "--build-id=none",      # No build ID for bare-metal
+        ])
+        
+        # Add library paths
+        for path in self.lib_paths:
+            cmd.extend(["-L", path])
+            
+        # Add libraries (only if explicitly specified)
+        for lib in self.external_libs:
+            cmd.extend(["-l", lib])
+        
+        if self.compiler.debug:
+            print(f"Executing bare-metal linker command: {' '.join(cmd)}")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            print(f"Bare-metal linking error: {result.stderr}")
+            raise RuntimeError(f"Failed to link bare-metal objects: {result.stderr}")
+        
+        print(f"Successfully linked bare-metal executable: {self.output_file}")
+        return self.output_file
+    
     def link(self) -> str:
         """
         Link all object files and libraries to create an executable.
@@ -177,12 +230,16 @@ class Linker:
         if not self.object_files:
             raise ValueError("No object files to link")
         
-        # If using clang as linker
+        # Use direct ld.lld for bare-metal targets
+        if self.is_bare_metal_target():
+            return self.link_bare_metal()
+        
+        # If using clang as linker for hosted targets
         if self.linker == self.clang:
             cmd = [self.linker]
 
-            cmd.extend(["-fno-pie", "-no-pie"])  
-
+            # Only add -fno-pie and -no-pie for hosted targets
+            cmd.extend(["-fno-pie", "-no-pie"])
             
             # Add object files
             cmd.extend(self.object_files)
@@ -270,6 +327,13 @@ class Linker:
         """
         if not self.clang:
             raise RuntimeError("clang not found. Cannot link with clang.")
+        
+        # For bare-metal targets, use the separate bare-metal flow
+        if self.is_bare_metal_target():
+            # First compile IR to object
+            obj_file = self.compile_ir_to_object(ir_file)
+            # Then use bare-metal linking
+            return self.link_bare_metal()
             
         cmd = [self.clang]
         

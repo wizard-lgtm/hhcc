@@ -112,21 +112,19 @@ class Datatypes:
     F32 = "F32"
     
     user_defined_types = {}
-    def __init__(self):
-        self.type_info = {
-        Datatypes.BOOL: {"type": ir.IntType(1), "signed": False},
-        Datatypes.U8: {"type": ir.IntType(8), "signed": False},
-        Datatypes.I8: {"type": ir.IntType(8), "signed": True},
-        Datatypes.U16: {"type": ir.IntType(16), "signed": False},
-        Datatypes.U32: {"type": ir.IntType(32), "signed": False},
-        Datatypes.U64: {"type": ir.IntType(64), "signed": False},
-        Datatypes.I8: {"type": ir.IntType(8), "signed": True},
-        Datatypes.I16: {"type": ir.IntType(16), "signed": True},
-        Datatypes.I32: {"type": ir.IntType(32), "signed": True},
-        Datatypes.I64: {"type": ir.IntType(64), "signed": True},
-        Datatypes.U0: {"type": ir.VoidType(), "signed": False},
-        Datatypes.F32: {"type": ir.FloatType(), "signed": True},
-        Datatypes.F64: {"type": ir.DoubleType(), "signed": True}
+    type_info = {
+        BOOL: {"type": ir.IntType(1), "signed": False},
+        U8: {"type": ir.IntType(8), "signed": False},
+        I8: {"type": ir.IntType(8), "signed": True},
+        U16: {"type": ir.IntType(16), "signed": False},
+        U32: {"type": ir.IntType(32), "signed": False},
+        U64: {"type": ir.IntType(64), "signed": False},
+        I16: {"type": ir.IntType(16), "signed": True},
+        I32: {"type": ir.IntType(32), "signed": True},
+        I64: {"type": ir.IntType(64), "signed": True},
+        U0: {"type": ir.VoidType(), "signed": False},
+        F32: {"type": ir.FloatType(), "signed": True},
+        F64: {"type": ir.DoubleType(), "signed": True}
     }
 
     @classmethod
@@ -282,7 +280,7 @@ separators = {
     "RBRACKET": "]",        # right square bracket
     "LBRACE": "{",          # left curly brace
     "RBRACE": "}",          # right curly brace
-    "ARROW": "->",          # member or function pointer access
+    "SCOPE": "::",          # scope resolution operator, used to access members of a class or namespace
     "THREEDOTS": "...",        # ellipsis for variadic functions
 }
 
@@ -367,6 +365,48 @@ class Lexer:
         token = Token(TokenType.LITERAL, f'"{value}"', line, column)
         return token, cursor
 
+    def _handle_char_literal(self, cursor, line, column):
+        """Handle character literals like 'p' or '\n' """
+        start = cursor
+        cursor += 1  # Skip opening quote
+        
+        value = ""
+        if cursor < len(self.source_code):
+            current_char = self.source_code[cursor]
+            
+            if current_char == '\\' and cursor + 1 < len(self.source_code):
+                # Handle escape sequences
+                cursor += 1
+                next_char = self.source_code[cursor]
+                if next_char == 'n':
+                    value += '\n'
+                elif next_char == 't':
+                    value += '\t'
+                elif next_char == 'r':
+                    value += '\r'
+                elif next_char == '\\':
+                    value += '\\'
+                elif next_char == "'":
+                    value += "'"
+                elif next_char == '0':
+                    value += '\0'
+                else:
+                    # Unknown escape sequence, just add both characters
+                    value += '\\' + next_char
+                cursor += 1
+            else:
+                # Regular character
+                value += current_char
+                cursor += 1
+        
+        # Expect closing quote
+        if cursor < len(self.source_code) and self.source_code[cursor] == "'":
+            cursor += 1  # Skip closing quote
+        
+        # Return the character literal with quotes, cursor position, and token
+        token = Token(TokenType.LITERAL, f"'{value}'", line, column)
+        return token, cursor
+
     def _handle_raw_string_literal(self, cursor, line, column):
         """Handle raw string literals like R"(content)" """
         start = cursor
@@ -413,6 +453,14 @@ class Lexer:
                 else:
                     column += 1
                 cursor += 1
+                continue
+    
+            # Handle Character Literals
+            elif current_chr == "'":
+                token, new_cursor = self._handle_char_literal(cursor, line, column)
+                tokens.append(token)
+                column += new_cursor - cursor
+                cursor = new_cursor
                 continue
 
             # Handle Raw String Literals (R"(...)")
@@ -537,16 +585,26 @@ class Lexer:
                 column += cursor - start
                 continue  # Avoid incrementing cursor again
 
-            # Handle ellipsis first (before other operators)
-            elif source_code[cursor:cursor + 3] == separators["THREEDOTS"]:
-                token = Token(TokenType.OPERATOR, separators["THREEDOTS"], line, column)
-                tokens.append(token)
-                cursor += 3
-                column += 3
-                continue
-
-            # Handle Operators
+            # Handle multi-character operators and separators first (longest match first)
             else:
+                # Check for scope resolution operator :: first
+                if (cursor + 1 < len(source_code) and 
+                    source_code[cursor:cursor + 2] == separators["SCOPE"]):
+                    token = Token(TokenType.SEPARATOR, separators["SCOPE"], line, column)
+                    tokens.append(token)
+                    cursor += 2
+                    column += 2
+                    continue
+                
+                # Handle ellipsis (before other operators)
+                elif source_code[cursor:cursor + 3] == separators["THREEDOTS"]:
+                    token = Token(TokenType.SEPARATOR, separators["THREEDOTS"], line, column)
+                    tokens.append(token)
+                    cursor += 3
+                    column += 3
+                    continue
+
+                # Handle other multi-character operators
                 operator_found = False
                 for operator_name, operator_value in sorted(operators.items(), key=lambda x: -len(x[1])):  # Match longest first
                     if source_code[cursor:cursor + len(operator_value)] == operator_value:
@@ -558,10 +616,11 @@ class Lexer:
                         break
                 
                 if not operator_found:
-                    # Handle Separators
+                    # Handle single-character separators
                     separator_found = False
                     for separator_name, separator_value in separators.items():
-                        if source_code[cursor:cursor + len(separator_value)] == separator_value:
+                        if (len(separator_value) == 1 and  # Only single-character separators here
+                            source_code[cursor:cursor + len(separator_value)] == separator_value):
                             token = Token(TokenType.SEPARATOR, separator_value, line, column)
                             tokens.append(token)
                             cursor += len(separator_value)

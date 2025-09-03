@@ -28,7 +28,11 @@ class ASTParser:
     
     def next_token(self):
         self.index += 1
+        # Skip over comments
+        while self.index < len(self.tokens) and self.tokens[self.index]._type == TokenType.COMMENT:
+            self.index += 1
         return self.current_token()
+
     
     def peek_token(self, offset=1):
         """look ahead at next tokens without consuming them"""
@@ -58,7 +62,6 @@ class ASTParser:
 
 
     def variable_declaration(self, user_typed=False):
-        print(self.current_token())
         var_type = self.current_token()
         self.next_token()  # Consume the type token
         list_of_declarations = []
@@ -259,17 +262,19 @@ class ASTParser:
                 op='&'
             )
 
-        # Handle parenthesized expressions
+        # Handle parentheses - could be cast or grouping
         if current._type == TokenType.SEPARATOR and current.value == separators["LPAREN"]:
-            self.next_token()  # Consume the '('
-            expr = self.parse_binary_expression()  # Parse the inner expression
+            # Try to parse as cast first
+            cast_result = self.try_parse_cast()
+            if cast_result:
+                return cast_result
             
-            # Expect closing parenthesis
-            current = self.current_token()
-            if not current or current.value != separators["RPAREN"]:
-                self.syntax_error("Expected closing parenthesis ')'", current)
-            
-            self.next_token()  # Consume the ')'
+            # If not a cast, parse as parenthesized expression
+            self.next_token()  # consume '('
+            expr = self.parse_binary_expression()
+            if not self.current_token() or self.current_token().value != separators["RPAREN"]:
+                self.syntax_error("Expected closing parenthesis ')'", self.current_token())
+            self.next_token()  # consume ')'
             return expr
             
         # Handle literals and identifiers
@@ -280,10 +285,25 @@ class ASTParser:
             )
             self.next_token()  # Consume the token
             
-            # Check for function calls, array indexing, or struct access
+            # Check for postfix operations, function calls, array indexing, or struct access
             while self.current_token():
+                current_token = self.current_token()
+                
+                # Handle postfix increment/decrement (++, --)
+                if (current_token._type == TokenType.OPERATOR and 
+                    current_token.value in ['++', '--']):
+                    op = current_token.value
+                    self.next_token()  # Consume the postfix operator
+                    
+                    # Create a postfix operation node
+                    node = ASTNode.ExpressionNode(
+                        NodeType.POSTFIX_OP,
+                        left=node,  # The operand
+                        op=op  # The postfix operator
+                    )
+                    
                 # Handle function calls with parentheses
-                if self.current_token()._type == TokenType.SEPARATOR and self.current_token().value == separators["LPAREN"]:
+                elif current_token._type == TokenType.SEPARATOR and current_token.value == separators["LPAREN"]:
                     args = []
                     self.next_token()  # Consume the '('
                     
@@ -318,7 +338,7 @@ class ASTParser:
                     )
                     
                 # Handle array indexing with brackets
-                elif self.current_token()._type == TokenType.SEPARATOR and self.current_token().value == separators["LBRACKET"]:
+                elif current_token._type == TokenType.SEPARATOR and current_token.value == separators["LBRACKET"]:
                     self.next_token()  # Consume the '['
                     index_expr = self.parse_expression()  # Parse the index expression
                     
@@ -337,7 +357,7 @@ class ASTParser:
                     )
                 
                 # Handle struct field access with dot
-                elif self.current_token()._type == TokenType.SEPARATOR and self.current_token().value == separators["DOT"]:
+                elif current_token._type == TokenType.SEPARATOR and current_token.value == separators["DOT"]:
                     self.next_token()  # Consume the '.'
                     
                     # Expect field name
@@ -354,13 +374,30 @@ class ASTParser:
                         right=ASTNode.ExpressionNode(NodeType.LITERAL, value=field_name),  # The field name
                         op="."  # Use dot to denote struct access
                     )
+                # Handle enum access with scope resolution operator (::)
+                elif current_token._type == TokenType.SEPARATOR and current_token.value == separators["SCOPE"]:  # Assuming SCOPE = "::"
+                    self.next_token()  # Consume the '::'
+
+                    if not self.current_token() or self.current_token()._type != TokenType.LITERAL:
+                        self.syntax_error("Expected identifier after '::'", self.current_token())
+
+                    enum_member = self.current_token().value
+                    self.next_token()  # Consume the identifier
+
+                    # Build a new ENUM_ACCESS node
+                    node = ASTNode.ExpressionNode(
+                        NodeType.ENUM_ACCESS,
+                        left=node,  # e.g., Colors
+                        right=ASTNode.ExpressionNode(NodeType.LITERAL, value=enum_member),
+                        op="::"
+                    )
                 else:
-                    break  # Exit loop if no more function calls, array indexing, or struct access
+                    break  # Exit loop if no more postfix operations
             
             return node
             
         # Handle unary operators
-        elif current._type == TokenType.OPERATOR and current.value in ['+', '-', '!']:
+        elif current._type == TokenType.OPERATOR and current.value in ['+', '-', '!', '~']:
             op = current.value
             self.next_token()  # Consume the operator
             operand = self.parse_primary_expression()
@@ -372,6 +409,81 @@ class ASTParser:
             
         else:
             self.syntax_error("Unexpected token in expression", current)
+
+    def try_parse_cast(self):
+        """
+        Try to parse a cast expression. Returns the cast node if successful, None otherwise.
+        This function should not consume tokens if it fails.
+        """
+        start_position = self.index
+        
+        try:
+            # We're already at '(', consume it
+            self.next_token()  # consume '('
+            
+            # Try to parse the type inside parentheses
+            type_info = self.try_parse_type_in_cast()
+            if not type_info:
+                # Not a valid type, backtrack
+                self.index = start_position  # Fixed: was self.token_index
+                return None
+            
+            type_name, pointer_level = type_info
+            
+            # Expect closing ')'
+            if not self.current_token() or self.current_token().value != separators["RPAREN"]:
+                # Not a valid cast, backtrack
+                self.index = start_position  # Fixed: was self.token_index
+                return None
+            
+            self.next_token()  # consume ')'
+            
+            # Parse the expression being casted
+            expr = self.parse_primary_expression()
+            
+            # Create the full type name with pointer indicators
+            full_type_name = type_name + ("*" * pointer_level)
+            
+            return ASTNode.ExpressionNode(
+                NodeType.CAST,
+                left=expr,
+                value=full_type_name,
+                op="cast"
+            )
+            
+        except Exception:
+            # If any error occurs, backtrack and return None
+            self.index = start_position  # Fixed: was self.token_index
+            return None
+
+    def try_parse_type_in_cast(self):
+        """
+        Try to parse a type specification inside cast parentheses.
+        Returns (type_name, pointer_level) if successful, None otherwise.
+        """
+        current = self.current_token()
+        
+        # First token should be a type keyword
+        if not current or current._type != TokenType.KEYWORD:
+            return None
+        
+        # Check if it's a valid type name - adjust this list to match your actual type system
+        type_name = current.value
+        valid_types = ["U8", "U16", "U32", "U64", "I8", "I16", "I32", "I64", "F32", "F64", "BOOL", "VOID"]
+        if type_name not in valid_types:
+            return None
+        
+        self.next_token()  # consume the type name
+        
+        # Count pointer levels
+        pointer_level = 0
+        while (self.current_token() and 
+               self.current_token()._type == TokenType.OPERATOR and 
+               self.current_token().value == "*"):  # Use "*" instead of separators["ASTERISK"]
+            pointer_level += 1
+            self.next_token()  # consume '*'
+        
+        return (type_name, pointer_level)
 
 
     def block(self):
@@ -505,7 +617,6 @@ class ASTParser:
         return ASTNode.FunctionDefinition(func_name, func_return_type, body, parameters, has_variadic_args)
         
     def if_statement(self):
-
         # Parse condition
         next_token = self.next_token()
         if not (next_token._type == TokenType.SEPARATOR and next_token.value == separators["LPAREN"]):
@@ -520,12 +631,17 @@ class ASTParser:
         
         self.next_token()  # Consume the closing parenthesis
         
-        # Parse the if block
-        if not self.current_token() or self.current_token().value != separators["LBRACE"]:
-            self.syntax_error("Expected '{' to start if block", self.current_token())
+        # Parse the if body - check if it's a block or single statement
+        current = self.current_token()
+        if current and current.value == separators["LBRACE"]:
+            # It's a block - parse normally
+            if_body = self.block()
+        else:
+            # It's a single statement - parse one statement and wrap it in a Block
+            statement = self.parse_statement(inside_block=True)
+            if_body = ASTNode.Block([statement])
         
-        block = self.block()
-        else_block = None
+        else_body = None
         
         # Check for optional else
         if self.current_token() and self.current_token()._type == TokenType.KEYWORD and self.current_token().value == keywords["ELSE"]:
@@ -534,15 +650,21 @@ class ASTParser:
             # Check if it's an else-if or a simple else
             if self.current_token() and self.current_token()._type == TokenType.KEYWORD and self.current_token().value == keywords["IF"]:
                 # Handle else-if by recursively calling if_statement
-                else_block = self.if_statement()
+                # Wrap the nested if statement in a block
+                nested_if = self.if_statement()
+                else_body = ASTNode.Block([nested_if])
             else:
-                # Parse simple else block
-                if not self.current_token() or self.current_token().value != separators["LBRACE"]:
-                    self.syntax_error("Expected '{' to start else block", self.current_token())
-                
-                else_block = self.block()
+                # Parse simple else body - check if it's a block or single statement
+                current = self.current_token()
+                if current and current.value == separators["LBRACE"]:
+                    # It's a block - parse normally
+                    else_body = self.block()
+                else:
+                    # It's a single statement - parse one statement and wrap it in a Block
+                    statement = self.parse_statement(inside_block=True)
+                    else_body = ASTNode.Block([statement])
         
-        return ASTNode.IfStatement(condition, block, else_block)
+        return ASTNode.IfStatement(condition, if_body, else_body)
     def while_loop(self):
         self.next_token()
         condition = self.parse_expression()
@@ -839,20 +961,25 @@ class ASTParser:
         if self.current_token() and self.current_token().value == operators["ASSIGN"]:
             self.next_token()  # Consume '='
             
-            # Parse array initialization
-            if self.current_token() and self.current_token().value == separators["LBRACE"]:
+            # Parse different types of array initialization
+            current = self.current_token()
+            if current and current.value == separators["LBRACE"]:
+                # Brace initialization: {1, 2, 3}
                 initialization = self.parse_array_initialization()
+            elif current and (current._type== TokenType.LITERAL or current._type == TokenType.LITERAL):
+                # String/char literal: "Hello" or 'A'
+                initialization = ASTNode.ArrayInitialization([current.value])
+                self.next_token()  # Consume literal
             else:
-                self.syntax_error("Expected '{' for array initialization", self.current_token())
+                # Single expression initialization
+                initialization = ASTNode.ArrayInitialization([self.parse_expression()])
         
         # Check semicolon
         self.check_semicolon()
         
         return ASTNode.ArrayDeclaration(base_type, name, dimensions, initialization)
 
-    
     def parse_array_initialization(self):
-
         
         if not self.current_token() or self.current_token().value != separators["LBRACE"]:
             self.syntax_error("Expected '{' to start array initialization", self.current_token())
@@ -871,6 +998,11 @@ class ASTParser:
             # Check for nested array initialization
             if self.current_token() and self.current_token().value == separators["LBRACE"]:
                 elements.append(self.parse_array_initialization())
+            elif self.current_token() and (self.current_token()._type == TokenType.LITERAL or 
+                                        self.current_token()._type == TokenType.LITERAL):
+                # Handle string/char literals within braces: {"Hello", "World"}
+                elements.append(self.current_token().value)
+                self.next_token()  # Consume literal
             else:
                 # Parse regular expression element
                 elements.append(self.parse_expression())
@@ -882,10 +1014,15 @@ class ASTParser:
             if self.current_token().value == separators["RBRACE"]:
                 self.next_token()  # Consume '}'
                 break  # End of initialization
-            elif self.current_token().value != separators["COMMA"]:
-                self.syntax_error("Expected ',' or '}' in array initialization", self.current_token())
-            else:
+            elif self.current_token().value == separators["COMMA"]:
                 self.next_token()  # Consume comma
+                
+                # Allow trailing comma - check if next token is closing brace
+                if self.current_token() and self.current_token().value == separators["RBRACE"]:
+                    self.next_token()  # Consume '}'
+                    break
+            else:
+                self.syntax_error("Expected ',' or '}' in array initialization", self.current_token())
         
         return ASTNode.ArrayInitialization(elements)
 
@@ -893,7 +1030,16 @@ class ASTParser:
         current_token = self.current_token()
         if not current_token:
             return None
-        
+    
+        # Check for array element assignment by looking ahead
+        if current_token._type == TokenType.LITERAL:
+            # Look ahead to see if this matches pattern: identifier[...] = ...
+            next_token = self.peek_token()
+            
+            if (next_token and next_token.value == separators["LBRACKET"]):
+                # This looks like array assignment
+                return self.parse_array_element_assignment()
+            
         # Handle extern declarations
         if current_token._type == TokenType.KEYWORD and current_token.value == keywords["EXTERN"]:
             return self.parse_extern_declaration()
@@ -1026,6 +1172,14 @@ class ASTParser:
 
     def variable_decrement(self):
         node =  ASTNode.VariableDecrement(self.current_token().value)
+        self.next_token()  # Consume the variable name
+        self.next_token()  # Consume the variable name
+        self.check_semicolon()
+        return node
+    
+    
+    def variable_increment(self):
+        node =  ASTNode.VariableIncrement(self.current_token().value)
         self.next_token()  # Consume the variable name
         self.next_token()  # Consume the variable name
         self.check_semicolon()
@@ -1175,7 +1329,7 @@ class ASTParser:
         while True:
             # Parse constraint string
             if (not self.current_token() or 
-                self.current_token()._type != TokenType.STRING):
+                self.current_token()._type != TokenType.LITERAL):
                 break
             
             constraint_str = self.current_token().value.strip('"\'')
@@ -1235,7 +1389,7 @@ class ASTParser:
         while True:
             # Parse clobber string
             if (not self.current_token() or 
-                self.current_token()._type != TokenType.STRING):
+                self.current_token()._type != TokenType.LITERAL):
                 break
             
             clobber_str = self.current_token().value.strip('"\'')
@@ -1251,63 +1405,111 @@ class ASTParser:
                 break
 
         return clobbers
-
     def parse_enum(self) -> ASTNode.Enum:
         """Parses an enum declaration and returns an Enum ASTNode with expression-based values."""
         if self.current_token().value != keywords["ENUM"]:
             self.syntax_error("Expected 'enum' keyword", self.current_token())
         self.next_token()  # consume 'enum'
-
+        
         if not self.current_token().value or self.current_token()._type != TokenType.LITERAL:
             self.syntax_error("Expected enum name", self.current_token())
         enum_name = self.current_token().value
         self.next_token()  # consume enum name
-
+        
         if not self.current_token().value or self.current_token().value != separators["LBRACE"]:
             self.syntax_error("Expected '{' to start enum body", self.current_token())
         self.next_token()  # consume '{'
-
+        
         members = []
-        last_expr = None
-
+        last_value = 0  # Track the last numeric value
+        
         while True:
             token = self.current_token()
             if not token:
                 self.syntax_error("Unexpected end of input in enum declaration")
-
             if token.value == separators["RBRACE"]:
                 self.next_token()  # consume '}'
                 break
-
+                
             if token._type != TokenType.LITERAL:
                 self.syntax_error("Expected enum member name", token)
             member_name = token.value
             self.next_token()  # consume member name
-
+            
+            # Determine if an assignment exists
             if self.current_token() and self.current_token().value == operators["ASSIGN"]:
                 self.next_token()  # consume '='
                 expr = self.parse_expression()
-                last_expr = expr
             else:
-                if last_expr is None:
-                    # Default to literal 0 if it's the first member
-                    expr = ASTNode.ExpressionNode(NodeType.LITERAL, value=0)
-                last_expr = expr
+                expr = ASTNode.ExpressionNode(NodeType.LITERAL, value=last_value + 1)
 
             members.append((member_name, expr))
 
+            # Update last_value based on expression
+            if hasattr(expr, 'value') and isinstance(expr.value, (int, float)):
+                last_value = int(expr.value)
+            elif hasattr(expr, 'token') and hasattr(expr.token, 'value'):
+                try:
+                    last_value = int(expr.token.value)
+                except (ValueError, TypeError):
+                    last_value += 1  # fallback
+                    print(f"Warning: Could not extract int value from token for member {member_name}")
+            else:
+                last_value += 1
+                print(f"Warning: Could not extract value from expression for enum member {member_name}")
+            
+            # Handle separator (comma or end brace)
             if self.current_token() and self.current_token().value == separators["COMMA"]:
                 self.next_token()  # consume ','
             elif self.current_token() and self.current_token().value == separators["RBRACE"]:
                 continue
             else:
                 self.syntax_error("Expected ',' or '}' in enum declaration", self.current_token())
-
+        
         if not self.current_token() or self.current_token().value != separators["SEMICOLON"]:
             self.syntax_error("Expected ';' after enum declaration", self.current_token())
         self.next_token()  # consume ';'
-
+        
         return ASTNode.Enum(enum_name, members)
+    
+    def parse_array_element_assignment(self):
+        """
+        Parse array element assignment: identifier[index] = value;
+        Returns an ArrayElementAssignment node
+        """
+        # Current token should be the array identifier
+        array_name = self.current_token().value
+        self.next_token()  # Consume array identifier
+        
+        # Expect '['
+        if not self.current_token() or self.current_token().value != separators["LBRACKET"]:
+            self.syntax_error("Expected '[' after array name", self.current_token())
+        
+        self.next_token()  # Consume '['
+        
+        # Parse index expression (this could be complex like i++, i+1, etc.)
+        index_expr = self.parse_expression()
+        
+        # Expect ']'
+        if not self.current_token() or self.current_token().value != separators["RBRACKET"]:
+            self.syntax_error("Expected ']' after array index", self.current_token())
+        
+        self.next_token()  # Consume ']'
+        
+        # Expect '='
+        if not self.current_token() or self.current_token().value != operators["ASSIGN"]:
+            self.syntax_error("Expected '=' after array access", self.current_token())
+        
+        self.next_token()  # Consume '='
+        
+        # Parse the value expression
+        value_expr = self.parse_expression()
+        
+        # Expect ';'
+        if self.current_token() and self.current_token().value == separators["SEMICOLON"]:
+            self.next_token()  # Consume ';'
+        
+        return ASTNode.ArrayElementAssignment(array_name, index_expr, value_expr)
 
 
     def parse(self):
