@@ -14,6 +14,7 @@ from . import functions
 from . import variables
 from . import structures
 from . import symboltable
+from . import inlineasm
 
 
 if TYPE_CHECKING:
@@ -99,7 +100,8 @@ class Codegen:
             functions,
             variables,
             structures,
-            symboltable
+            symboltable,
+            inlineasm
         ]
 
         self._bind_handler_functions(handler_modules)
@@ -133,7 +135,8 @@ class Codegen:
             ASTNode.CompoundVariableAssigment: self.handle_compound_variable_assignment,
             ASTNode.Enum: self.handle_enum,
             ASTNode.ArrayElementAssignment: self.handle_array_element_assignment,
-            ASTNode.ArrayDeclaration: self.handle_array_declaration
+            ASTNode.ArrayDeclaration: self.handle_array_declaration,
+            ASTNode.InlineAsm: self.handle_inline_asm
             
         }
 
