@@ -53,9 +53,13 @@ remy clarke said python is kinda suitable for compiler development. it works tho
 sudo apt install python3-llvmlite
 
 # Testing
+Create a virtual enviroment and get into it 
 
+```bash
+pip3 install llvmlite
 python3 src/compiler.py src/code/inlineasm_test.HC -o test
 ./test
+```
 
 ## Contribution
 
