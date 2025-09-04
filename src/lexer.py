@@ -528,41 +528,54 @@ class Lexer:
                 column += cursor - start
                 continue  # Avoid incrementing cursor again
 
-            # Numerical Literals (including floating point)
+            # Numerical Literals (including floating point and hexadecimal)
             elif current_chr.isdigit() or (current_chr == '.' and cursor + 1 < len(source_code) and source_code[cursor + 1].isdigit()):
                 start = cursor
                 has_decimal_point = False
-
-                # First part: digits before decimal point
-                while cursor < len(source_code) and source_code[cursor].isdigit():
-                    cursor += 1
+                is_hex = False
                 
-                # Handle decimal point if present
-                if cursor < len(source_code) and source_code[cursor] == '.':
-                    has_decimal_point = True
-                    cursor += 1  # Consume the decimal point
+                # Check for hexadecimal (0x or 0X)
+                if (current_chr == '0' and cursor + 1 < len(source_code) and 
+                    (source_code[cursor + 1] == 'x' or source_code[cursor + 1] == 'X')):
+                    is_hex = True
+                    cursor += 2  # Skip '0x' or '0X'
                     
-                    # Digits after decimal point
+                    # Consume hexadecimal digits
+                    while cursor < len(source_code) and (source_code[cursor].isdigit() or 
+                                                    source_code[cursor].lower() in 'abcdef'):
+                        cursor += 1
+                else:
+                    # Regular decimal number
+                    # First part: digits before decimal point
                     while cursor < len(source_code) and source_code[cursor].isdigit():
                         cursor += 1
-
-                # Handle scientific notation (e.g. 1.23e+10)
-                if cursor < len(source_code) and (source_code[cursor] == 'e' or source_code[cursor] == 'E'):
-                    cursor += 1  # Consume the 'e' or 'E'
                     
-                    # Optional + or - sign
-                    if cursor < len(source_code) and (source_code[cursor] == '+' or source_code[cursor] == '-'):
-                        cursor += 1
-                    
-                    # Exponent digits
-                    if cursor < len(source_code) and source_code[cursor].isdigit():
+                    # Handle decimal point if present
+                    if cursor < len(source_code) and source_code[cursor] == '.':
+                        has_decimal_point = True
+                        cursor += 1  # Consume the decimal point
+                        
+                        # Digits after decimal point
                         while cursor < len(source_code) and source_code[cursor].isdigit():
                             cursor += 1
-                    else:
-                        # Malformed scientific notation, roll back to before the 'e'/'E'
-                        cursor = start
-                        while cursor < len(source_code) and source_code[cursor] != 'e' and source_code[cursor] != 'E':
+
+                    # Handle scientific notation (e.g. 1.23e+10) - only for decimal numbers
+                    if not is_hex and cursor < len(source_code) and (source_code[cursor] == 'e' or source_code[cursor] == 'E'):
+                        cursor += 1  # Consume the 'e' or 'E'
+                        
+                        # Optional + or - sign
+                        if cursor < len(source_code) and (source_code[cursor] == '+' or source_code[cursor] == '-'):
                             cursor += 1
+                        
+                        # Exponent digits
+                        if cursor < len(source_code) and source_code[cursor].isdigit():
+                            while cursor < len(source_code) and source_code[cursor].isdigit():
+                                cursor += 1
+                        else:
+                            # Malformed scientific notation, roll back to before the 'e'/'E'
+                            cursor = start
+                            while cursor < len(source_code) and source_code[cursor] != 'e' and source_code[cursor] != 'E':
+                                cursor += 1
 
                 value = source_code[start:cursor]
                 token = Token(TokenType.LITERAL, value, line, column)
