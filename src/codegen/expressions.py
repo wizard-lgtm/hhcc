@@ -1007,7 +1007,13 @@ def _expression_handle_literal(self: "Codegen", node: ASTNode.ExpressionNode, bu
                     var_type = ir.IntType(1)
                 elif '.' in node.value and all(c.isdigit() or c == '.' or c == '-' or c == '+' or c.lower() == 'e' 
                                             for c in node.value):
-                    var_type = ir.DoubleType()  # or FloatType
+                    var_type = ir.DoubleType()# or FloatType
+                    
+                # Hexadecimal literals
+                elif node.value.startswith('0x'):
+                    # Handle
+                    var_type = ir.IntType(64)
+                    pass
                 else:
                     # Could be a variable name or other identifier
                     raise ValueError(f"Cannot infer type for literal value: '{node.value}'")
@@ -1064,15 +1070,18 @@ def _expression_handle_literal(self: "Codegen", node: ASTNode.ExpressionNode, bu
                     # Fallback if the helper method doesn't exist
                     if isinstance(node.value, str):
                         # Handle hexadecimal, octal, binary literals
-                        if node.value.startswith('0x') or node.value.startswith('0X'):
-                            int_val = int(node.value, 16)
-                        elif node.value.startswith('0b') or node.value.startswith('0B'):
-                            int_val = int(node.value, 2)
-                        elif node.value.startswith('0') and len(node.value) > 1 and node.value[1].isdigit():
-                            int_val = int(node.value, 8)
-                        else:
-                            # Try parsing as decimal
-                            int_val = int(float(node.value))
+                        try:
+                            if node.value.startswith('0x') or node.value.startswith('0X'):
+                                int_val = int(node.value, 16)
+                            elif node.value.startswith('0b') or node.value.startswith('0B'):
+                                int_val = int(node.value, 2)
+                            elif node.value.startswith('0') and len(node.value) > 1 and all(c.isdigit() for c in node.value[1:]):
+                                int_val = int(node.value, 8)
+                            else:
+                                # Try parsing as decimal
+                                int_val = int(float(node.value))
+                        except ValueError as e:
+                            raise ValueError(f"Invalid integer literal: '{node.value}' - {e}")
                     else:
                         # Already a numeric value
                         int_val = int(node.value)
@@ -1093,15 +1102,30 @@ def _expression_handle_literal(self: "Codegen", node: ASTNode.ExpressionNode, bu
             raise ValueError(f"Invalid literal or undefined variable: '{node.value}'")
     
 def _expression_parse_integer_literal(self: "Codegen", value: str, var_type: ir.IntType):
-    val = int(value)
-
+    """Parse integer literals supporting decimal, hexadecimal, octal, and binary formats"""
+    try:
+        # Handle hexadecimal literals
+        if value.startswith('0x') or value.startswith('0X'):
+            val = int(value, 16)
+        # Handle binary literals  
+        elif value.startswith('0b') or value.startswith('0B'):
+            val = int(value, 2)
+        # Handle octal literals (starts with 0 and has only digits)
+        elif value.startswith('0') and len(value) > 1 and all(c.isdigit() for c in value[1:]):
+            val = int(value, 8)
+        # Handle decimal literals
+        else:
+            val = int(value)
+    except ValueError as e:
+        raise ValueError(f"Invalid integer literal: '{value}' - {e}")
+    
+    # Handle signed vs unsigned integer types
     if var_type in self.signed_int_types:
         return ir.Constant(var_type, val)
-
+    
     # For unsigned integers, convert negatives to 2's complement
     if val < 0:
         val = (1 << var_type.width) + val
-
     return ir.Constant(var_type, val)
 
 def handle_struct_access(self: "Codegen", node: ASTNode.ExpressionNode, builder: ir.IRBuilder):
