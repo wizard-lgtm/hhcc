@@ -63,7 +63,7 @@ class Scope:
 
     def define(self, symbol: Symbol) -> None:
         """Define a symbol in this scope."""
-        if symbol.name in self.symbols:
+        if symbol.name in self.symbols and symbol.kind != SymbolKind.PARAMETER:
             raise ValueError(f"Symbol '{symbol.name}' already defined in scope {self.level}")
         self.symbols[symbol.name] = symbol
 
