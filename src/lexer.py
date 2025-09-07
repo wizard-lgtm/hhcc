@@ -193,46 +193,47 @@ class Datatypes:
         return type_name.startswith("F")
 
     @classmethod
-    def to_llvm_type(cls, type_name: str) -> ir.Type:
-        """Convert the type name to the corresponding llvmlite type."""
-        # First check if the type is a user-defined type
+    def to_llvm_type(cls, type_name: str, pointer_level: int = 0) -> ir.Type:
+        """Convert the type name + pointer level to the corresponding llvmlite type."""
+
+        # Handle user-defined types
         if type_name in cls.user_defined_types:
             user_type = cls.user_defined_types[type_name]
-            
-            # If it's a wrapper like ClassTypeInfo, extract the LLVM type
-            if hasattr(user_type, 'get_llvm_type'):
-                return user_type.get_llvm_type()
-            
-            # Otherwise, assume it's already an LLVM type
-            return user_type
-
-        # Primitive and built-in types
-        if type_name == cls.U8:
-            return ir.IntType(8)
-        elif type_name == cls.U16:
-            return ir.IntType(16)
-        elif type_name == cls.U32:
-            return ir.IntType(32)
-        elif type_name == cls.U64:
-            return ir.IntType(64)
-        elif type_name == cls.I8:
-            return ir.IntType(8)
-        elif type_name == cls.I16:
-            return ir.IntType(16)
-        elif type_name == cls.I32:
-            return ir.IntType(32)
-        elif type_name == cls.I64:
-            return ir.IntType(64)
-        elif type_name == cls.BOOL:
-            return ir.IntType(1)  # Boolean is typically 1 bit in LLVM IR
-        elif type_name == cls.U0:
-            return ir.VoidType()  # Void type has no size
-        elif type_name == cls.F64:
-            return ir.DoubleType()  # Double precision float
-        elif type_name == cls.F32:
-            return ir.FloatType()  # Single precision float
+            llvm_type = user_type.get_llvm_type() if hasattr(user_type, 'get_llvm_type') else user_type
         else:
-            raise ValueError(f"Unknown type: {type_name}")
+            # Primitive and built-in types
+            if type_name == cls.U8:
+                llvm_type = ir.IntType(8)
+            elif type_name == cls.U16:
+                llvm_type = ir.IntType(16)
+            elif type_name == cls.U32:
+                llvm_type = ir.IntType(32)
+            elif type_name == cls.U64:
+                llvm_type = ir.IntType(64)
+            elif type_name == cls.I8:
+                llvm_type = ir.IntType(8)
+            elif type_name == cls.I16:
+                llvm_type = ir.IntType(16)
+            elif type_name == cls.I32:
+                llvm_type = ir.IntType(32)
+            elif type_name == cls.I64:
+                llvm_type = ir.IntType(64)
+            elif type_name == cls.BOOL:
+                llvm_type = ir.IntType(1)
+            elif type_name == cls.U0:
+                llvm_type = ir.VoidType()
+            elif type_name == cls.F64:
+                llvm_type = ir.DoubleType()
+            elif type_name == cls.F32:
+                llvm_type = ir.FloatType()
+            else:
+                raise ValueError(f"Unknown type: {type_name}")
+
+        # Apply pointer levels
+        for _ in range(pointer_level):
+            llvm_type = llvm_type.as_pointer()
+
+        return llvm_type
 
 
 

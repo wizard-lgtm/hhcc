@@ -150,7 +150,7 @@ def handle_class(self, node: ASTNode.Class, **kwargs):
             # For other types, use the standard conversion.
             # Datatypes.to_llvm_type should handle base types (U8, etc.)
             # and potentially look up other defined class types (usually returning pointers).
-            field_llvm_type = Datatypes.to_llvm_type(field.var_type)
+            field_llvm_type = Datatypes.to_llvm_type(field.var_type, field.pointer_level)
 
         field_llvm_types.append(field_llvm_type)
         field_names.append(field.name)
