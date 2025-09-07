@@ -334,8 +334,13 @@ class ASTNode:
 
             return result
 
+
+
         def __repr__(self) -> str:
-            return self.name
+            return f"<Class {self.name}>"
+
+        def __str__(self) -> str:
+            return self.print_tree()
 
 
     class Union:
