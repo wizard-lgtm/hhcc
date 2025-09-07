@@ -553,12 +553,14 @@ class ASTParser:
                 self.next_token() # Consume ')' 
                 break 
             
-            # Parse typed parameter 
-            param_type = self.next_token() 
-            if not param_type or param_type._type != TokenType.KEYWORD: 
-                self.syntax_error("Expected parameter type", param_type) 
-            if not (param_type.value in Datatypes.all_types()): 
-                self.syntax_error("Invalid parameter type", param_type) 
+            # Parse typed parameter
+            param_type = self.next_token()
+            if not param_type:
+                self.syntax_error("Expected parameter type", param_type)
+
+            # Accept built-in keywords or class/struct names
+            if param_type._type not in (TokenType.KEYWORD, TokenType.LITERAL):
+                self.syntax_error("Expected parameter type", param_type)
             
             # Pointer check 
             is_pointer = False 
@@ -788,10 +790,12 @@ class ASTParser:
         
         return ASTNode.FunctionCall(func_name, args, has_parentheses)   
 
+
     def class_declaration(self):
         class_name = None
         parent_class = None
         fields = []
+        methods = []
         
         # Parse class name
         next_token = self.next_token()
@@ -799,43 +803,57 @@ class ASTParser:
             self.syntax_error("Expected class name", next_token)
         class_name = next_token.value
 
-        # Check for inheritance (colon followed by parent class name)
+        # Check for inheritance
         peek_token = self.peek_token()
         if peek_token and peek_token._type == TokenType.SEPARATOR and peek_token.value == separators["COLON"]:
-            self.next_token()  # Consume the colon
-            
-            # Get parent class name
+            self.next_token()  # consume ':'
             parent_token = self.next_token()
             if not parent_token or parent_token._type != TokenType.LITERAL:
                 self.syntax_error("Expected parent class name after ':'", parent_token)
             parent_class = parent_token.value
 
-        # Parse block start (expect '{')
+        # Expect '{'
         next_token = self.next_token()
         if not (next_token._type == TokenType.SEPARATOR and next_token.value == separators["LBRACE"]):
             self.syntax_error("Expected '{'", next_token)
 
-        # Consume the opening brace
-        self.next_token()
-        
-        # Parse fields until we hit the closing brace
+        self.next_token()  # consume '{'
+
         while self.current_token() and self.current_token().value != separators["RBRACE"]:
-            # Parse field declaration
-            var = self.variable_declaration()
-            fields.append(var)
-        
-        # Check if we found the closing brace
+            # Start with type
+            type_token = self.current_token()
+            if not type_token or type_token._type != TokenType.KEYWORD:
+                self.syntax_error("Expected type specifier", type_token)
+
+            # Skip over pointer stars after type (like U8* or U8***)
+            star_count = 0
+            while self.peek_token(star_count + 1) and self.peek_token(star_count + 1).value == operators["POINTER"]:
+                star_count += 1
+
+            # Now the identifier should come after any '*' tokens
+            next_token = self.peek_token(star_count + 1)
+            if not next_token or next_token._type != TokenType.LITERAL:
+                self.syntax_error("Expected identifier after type", next_token)
+
+            # Check if it's a function: look one more token after the identifier
+            third_token = self.peek_token(star_count + 2)
+            if third_token and third_token.value == separators["LPAREN"]:
+                func = self.function_declaration()
+                methods.append(func)
+            else:
+                var = self.variable_declaration()
+                fields.append(var)
+
+
+        # Must end with '}'
         if not self.current_token() or self.current_token().value != separators["RBRACE"]:
             self.syntax_error("Expected '}' to close class declaration", self.current_token() or self.tokens[-1])
         
-        # Consume the closing brace
-        self.next_token()
-        
-        # Check for semicolon
+        self.next_token()  # consume '}'
         self.check_semicolon()
 
-        # Modify your ASTNode.Class constructor to accept parent_class
-        return ASTNode.Class(class_name, fields, parent_class)
+        return ASTNode.Class(class_name, fields, methods, parent_class)
+
 
     def union_declaration(self):
         name = None

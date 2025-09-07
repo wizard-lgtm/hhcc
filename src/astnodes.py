@@ -306,12 +306,20 @@ class ASTNode:
 
         def __repr__(self) -> str:
             return self.print_tree()
-        
+            
     class Class:
-        def __init__(self, name: str, fields: List['ASTNode.VariableDeclaration'], parent: Optional[str] = None):
+        def __init__(
+            self,
+            name: str,
+            fields: List['ASTNode.VariableDeclaration'],
+            methods: List['ASTNode.FunctionDefinition'] = None,
+            parent: Optional[str] = None
+        ):
             self.name: str = name
-            self.fields: List['ASTNode.VariableDeclaration'] = fields  # List of variable assignments
+            self.fields: List['ASTNode.VariableDeclaration'] = fields
+            self.methods: List['ASTNode.FunctionDefinition'] = methods or []  # default empty list
             self.parent: Optional[str] = parent  
+
             Datatypes.add_type(name, self)
             keywords[name] = name
 
@@ -320,27 +328,30 @@ class ASTNode:
             result += f"{prefix}├── name: {self.name}\n"
 
             if self.parent:
-                result += f"{prefix}└── parent: {self.parent}\n"  
-
-            if self.fields:
-                result += f"{prefix}└── fields:\n"
-                for i, field in enumerate(self.fields):
-                    if i < len(self.fields) - 1:
-                        result += f"{prefix}    ├── {field.print_tree(prefix + '    │   ')}"
-                    else:
-                        result += f"{prefix}    └── {field.print_tree(prefix + '        ')}"
+                result += f"{prefix}├── parent: {self.parent}\n"  
             else:
-                result += f"{prefix}└── fields: []\n"
+                result += f"{prefix}├── parent: None\n"
+
+            # Fields
+            if self.fields:
+                result += f"{prefix}├── fields:\n"
+                for i, field in enumerate(self.fields):
+                    connector = "├──" if i < len(self.fields) - 1 else "└──"
+                    result += f"{prefix}│   {connector} {field.print_tree(prefix + '│   ')}"
+            else:
+                result += f"{prefix}├── fields: []\n"
+
+            # Methods
+            if self.methods:
+                result += f"{prefix}└── methods:\n"
+                for i, method in enumerate(self.methods):
+                    connector = "├──" if i < len(self.methods) - 1 else "└──"
+                    result += f"{prefix}    {connector} {method.print_tree(prefix + '    ')}"
+            else:
+                result += f"{prefix}└── methods: []\n"
 
             return result
 
-
-
-        def __repr__(self) -> str:
-            return f"<Class {self.name}>"
-
-        def __str__(self) -> str:
-            return self.print_tree()
 
 
     class Union:
