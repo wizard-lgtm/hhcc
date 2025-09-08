@@ -306,7 +306,7 @@ class ASTNode:
 
         def __repr__(self) -> str:
             return self.print_tree()
-            
+
     class Class:
         def __init__(
             self,
@@ -640,5 +640,35 @@ class ASTNode:
             result += f"{prefix}└── value: {self.value_expr.print_tree(prefix + '    ')}"
             return result
 
+        def __repr__(self) -> str:
+            return self.print_tree()
+
+    class MethodCall:
+        def __init__(self, object_name: str, method_name: str, args: list = None):
+            self.object_name = object_name
+            self.method_name = method_name
+            self.args = args if args is not None else []
+        
+        def print_tree(self, prefix: str = "") -> str:
+            result = f"{prefix}ClassMethodCall\n"
+            result += f"{prefix}├── object_name: {self.object_name}\n"
+            result += f"{prefix}├── method_name: {self.method_name}\n"
+            
+            if self.args:
+                result += f"{prefix}└── args:\n"
+                for i, arg in enumerate(self.args):
+                    is_last = i == len(self.args) - 1
+                    connector = "└──" if is_last else "├──"
+                    next_prefix = "    " if is_last else "│   "
+                    
+                    if hasattr(arg, 'print_tree'):
+                        result += f"{prefix}    {connector} {arg.print_tree(prefix + next_prefix)}"
+                    else:
+                        result += f"{prefix}    {connector} {arg}\n"
+            else:
+                result += f"{prefix}└── args: []\n"
+            
+            return result
+        
         def __repr__(self) -> str:
             return self.print_tree()
