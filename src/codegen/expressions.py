@@ -1128,79 +1128,60 @@ def _expression_parse_integer_literal(self: "Codegen", value: str, var_type: ir.
         val = (1 << var_type.width) + val
     return ir.Constant(var_type, val)
 
-def handle_struct_access(self: "Codegen", node: ASTNode.ExpressionNode, builder: ir.IRBuilder):
+def handle_struct_access(self: "Codegen", node: ASTNode.ExpressionNode, builder: ir.IRBuilder, load_final=True):
+    """
+    Handles struct access chains safely.
+    load_final: whether to load the final field (False if assigning)
+    """
     debug = self.compiler.debug
-    """
-    Handle struct access operations, including nested access chains like a.b.c
-    This implementation flattens the nested access into a sequence of single accesses
-    """
-    # Flatten the chain of struct accesses
     access_chain = self._flatten_struct_access(node)
+
     if debug:
         print(f"Access chain: {access_chain}")
-    
-    # Start with the base struct
+
+    # Base variable
     base_name = access_chain[0]
     base_info = self.symbol_table.lookup(base_name)
     if not base_info:
         raise ValueError(f"Unknown struct variable: {base_name}")
-    
-    current_ptr = base_info.llvm_value
+
+    current_ptr = builder.load(field_ptr, name=f"access_{field_name}")
+
     current_type = base_info.data_type
+
     if debug:
         print(f"Starting with base: {base_name} of type {current_type}")
-    
-    # Process each field access in the chain (except the first which is the base)
-    result_ptr = current_ptr  # Store the final result
-    
+
     for i, field_name in enumerate(access_chain[1:]):
         if debug:
             print(f"Accessing field: {field_name} in type: {current_type}")
-        
-        # Check if current type is a valid struct
+
         class_info = self.struct_table.get(current_type)
         if not class_info:
             raise ValueError(f"Unknown struct type: {current_type}")
-        
-        class_type = class_info.get("class_type_info")
-        if not class_type or field_name not in class_type.field_names:
-            raise ValueError(f"Field '{field_name}' not found in struct '{current_type}'.")
-        
-        field_index = class_type.field_names.index(field_name)
-        if debug:
-            print(f"Field index: {field_index}")
 
-        
-        # Get the field pointer
-        if i == 0:  # First field access (base.field)
-            field_ptr = self.get_struct_field_ptr(base_name, field_name, builder)
-        else:
-            # For nested accesses, use GEP on the current_ptr
-            field_ptr = builder.gep(current_ptr, [ir.Constant(ir.IntType(32), 0), 
-                                                ir.Constant(ir.IntType(32), field_index)],
-                                name=f"field_{field_name}_ptr")
-        
-        # Load the field value
-        current_ptr = builder.load(field_ptr, name=f"access_{field_name}")
-        result_ptr = current_ptr  # Update the result pointer
-        
-        # Update current type to the field's type for next iteration
-        if field_name == 'next' and current_type == 'Node':
-            # Special case for linked list - 'next' points to another Node
-            current_type = 'Node'
-        else:
-            # For other cases, you'd need a more general mechanism to determine field types
-            # This would rely on having field type information in your struct definitions
-            if debug:
-                print(f"Need to determine type of field {field_name} in {current_type}")
-            # Default fallback - if we're at the end of the chain, we don't need the next type
-            if i == len(access_chain[1:]) - 1:
-                break
+        class_type = class_info.get("class_type_info")
+        if field_name not in class_type.field_names:
+            raise ValueError(f"Field '{field_name}' not found in struct '{current_type}'")
+
+        # Always get pointer to field via GEP
+        field_ptr = self.get_struct_field_ptr(current_ptr, current_type, field_name, builder)
+
+        # Update current_ptr:
+        # - For intermediate fields: keep pointer
+        # - For final field: load if load_final=True
+        if i == len(access_chain[1:]) - 1:
+            if load_final:
+                current_ptr = builder.load(field_ptr, name=f"access_{field_name}")
             else:
-                # For intermediate accesses, must determine next type or error
-                raise ValueError(f"Cannot determine type of field {field_name} in {current_type}")
-    
-    return result_ptr
+                current_ptr = field_ptr  # For assignment, we return pointer
+        else:
+            current_ptr = field_ptr
+
+        # Update type for next iteration
+        current_type = class_type.field_types[class_type.field_names.index(field_name)]
+
+    return current_ptr
 
 def _flatten_struct_access(self: "Codegen", node):
 
@@ -1307,19 +1288,13 @@ def _handle_pointer_arithmetic(self, left_val: ir.Value, operator: str, right_va
     # Regular arithmetic for non-pointer cases
     return None  # Let caller handle regular arithmetic
 
-def get_struct_field_ptr(self, struct_name: str, field_name: str, builder: ir.IRBuilder):
+def get_struct_field_ptr(self, struct_ptr, struct_type_name: str, field_name: str, builder: ir.IRBuilder):
     """
     Returns the pointer to a struct field using GEP.
+    struct_ptr: llvm pointer to the struct (e.g., self)
+    struct_type_name: type name of the struct
+    field_name: field to access
     """
-    # Ensure the struct variable exists
-    if struct_name not in self.symbol_table:
-        raise ValueError(f"Struct variable '{struct_name}' not found.")
-
-    
-    struct_info = self.symbol_table.lookup(struct_name)
-    struct_ptr = struct_info.llvm_value
-    struct_type_name = struct_info.data_type
-
     struct_type_info = self.struct_table[struct_type_name]["class_type_info"]
 
     if field_name not in struct_type_info.field_names:
@@ -1329,7 +1304,8 @@ def get_struct_field_ptr(self, struct_name: str, field_name: str, builder: ir.IR
     zero = ir.Constant(ir.IntType(32), 0)
     field_idx = ir.Constant(ir.IntType(32), field_index)
 
-    return builder.gep(struct_ptr, [zero, field_idx], name=f"{struct_name}_{field_name}_ptr")
+    return builder.gep(struct_ptr, [zero, field_idx], name=f"{struct_type_name}_{field_name}_ptr")
+
 
 def handle_enum_access(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
     """
