@@ -214,8 +214,12 @@ def handle_class(self, node: ASTNode.Class, **kwargs):
             is_user_typed=True
         )
         
+
         # Combine self parameter with existing parameters
-        all_params = [self_param] + method.parameters
+        if not method.parameters or method.parameters[0].name != "self":
+            all_params = [self_param] + method.parameters
+        else:
+            all_params = method.parameters
         
         # Create a new function definition with the mangled name and updated parameters
         mangled_method = ASTNode.FunctionDefinition(
@@ -258,7 +262,6 @@ def handle_class_method_call(self, node, builder: ir.IRBuilder, **kwargs):
     
     # Check parameter count
     func = func_symbol.llvm_value
-    print(len(func.function_type.args))
     expected_total_args = len(func.function_type.args)  # Total expected (including self)
     provided_user_args = len(provided_args)             # User-provided args (excluding self)
     
@@ -271,7 +274,11 @@ def handle_class_method_call(self, node, builder: ir.IRBuilder, **kwargs):
                         f"(plus self), but {provided_user_args} were provided")
     
     # Create self reference node
-    self_ref = ASTNode.ExpressionNode(NodeType.REFERENCE, value=object_name)
+    self_ref = ASTNode.ExpressionNode(
+    NodeType.REFERENCE,
+    left=ASTNode.ExpressionNode(NodeType.LITERAL, value=object_name)
+    )
+
     
     # Create modified function call node with self as first argument
     modified_call = ASTNode.FunctionCall(
