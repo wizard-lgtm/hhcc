@@ -1,8 +1,11 @@
-#include "./lib/print.HC"
 class Person{
     U8 age;
     U8* name;
+
+    U0 say_hi(Person* self){
+    }
 };
+
  
 U32 main(){
 
@@ -14,7 +17,7 @@ U32 main(){
 
     p.name = name;
 
-    print_str(p.name);
+    p.say_hi();
 
     return 0;
 }
