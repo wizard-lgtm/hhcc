@@ -148,6 +148,10 @@ def handle_variable_assignment(self, node: ASTNode.VariableAssignment, builder: 
         if field_name not in struct_type_info.field_names:
             raise ValueError(f"Field '{field_name}' not found in struct '{struct_type_name}'.")
         
+        print(f"DEBUG: struct_ptr: {struct_ptr}")
+        print(f"DEBUG: struct_type_name: {struct_type_name}")
+        print(f"DEBUG: field_name: {field_name}")
+
         field_ptr = self.get_struct_field_ptr(struct_ptr, struct_type_name, field_name, builder)
         print(f"DEBUG: field_ptr: {field_ptr}")
         print(f"DEBUG: field_ptr.type: {field_ptr.type}")

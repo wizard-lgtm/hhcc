@@ -1145,13 +1145,14 @@ def handle_struct_access(self: "Codegen", node: ASTNode.ExpressionNode, builder:
     if not base_info:
         raise ValueError(f"Unknown struct variable: {base_name}")
 
-    current_ptr = builder.load(field_ptr, name=f"access_{field_name}")
-
+    # Start with base pointer/value
+    current_ptr = base_info.llvm_value
     current_type = base_info.data_type
 
     if debug:
         print(f"Starting with base: {base_name} of type {current_type}")
 
+    # Walk through each field in the access chain
     for i, field_name in enumerate(access_chain[1:]):
         if debug:
             print(f"Accessing field: {field_name} in type: {current_type}")
@@ -1164,7 +1165,7 @@ def handle_struct_access(self: "Codegen", node: ASTNode.ExpressionNode, builder:
         if field_name not in class_type.field_names:
             raise ValueError(f"Field '{field_name}' not found in struct '{current_type}'")
 
-        # Always get pointer to field via GEP
+        # Get pointer to field via GEP
         field_ptr = self.get_struct_field_ptr(current_ptr, current_type, field_name, builder)
 
         # Update current_ptr:
@@ -1182,6 +1183,7 @@ def handle_struct_access(self: "Codegen", node: ASTNode.ExpressionNode, builder:
         current_type = class_type.field_types[class_type.field_names.index(field_name)]
 
     return current_ptr
+
 
 def _flatten_struct_access(self: "Codegen", node):
 
@@ -1291,7 +1293,7 @@ def _handle_pointer_arithmetic(self, left_val: ir.Value, operator: str, right_va
 def get_struct_field_ptr(self, struct_ptr, struct_type_name: str, field_name: str, builder: ir.IRBuilder):
     """
     Returns the pointer to a struct field using GEP.
-    struct_ptr: llvm pointer to the struct (e.g., self)
+    struct_ptr: llvm pointer to the struct (e.g., self or local variable)
     struct_type_name: type name of the struct
     field_name: field to access
     """
@@ -1304,7 +1306,16 @@ def get_struct_field_ptr(self, struct_ptr, struct_type_name: str, field_name: st
     zero = ir.Constant(ir.IntType(32), 0)
     field_idx = ir.Constant(ir.IntType(32), field_index)
 
-    return builder.gep(struct_ptr, [zero, field_idx], name=f"{struct_type_name}_{field_name}_ptr")
+    # If struct_ptr is pointer to struct*, load once
+    if isinstance(struct_ptr.type, ir.PointerType) and isinstance(struct_ptr.type.pointee, ir.PointerType):
+        struct_ptr = builder.load(struct_ptr, name=f"{struct_type_name}_loaded")
+
+    result = builder.gep(struct_ptr, [zero, field_idx], name=f"{struct_type_name}_{field_name}_ptr")
+    
+    print("GEP result in get_struct_field_ptr", result)
+
+    return result
+
 
 
 def handle_enum_access(self, node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
