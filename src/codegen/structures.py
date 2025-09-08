@@ -81,9 +81,10 @@ class EnumTable:
         self.enums.clear()
 
 class ClassTypeInfo:
-            def __init__(self, llvm_type, field_names, parent_type=None, node: ASTNode.Class = None):
+            def __init__(self, llvm_type, field_names, field_types=[], parent_type=None, node: ASTNode.Class = None):
                 self.llvm_type = llvm_type
                 self.field_names = field_names
+                self.field_types = field_types
                 self.parent = parent_type
                 self.node = node
             
@@ -186,7 +187,7 @@ def handle_class(self, node: ASTNode.Class, **kwargs):
 
     # Create a wrapper object to store additional information about our class,
     # including the now-defined LLVM struct type.
-    class_type_info = ClassTypeInfo(struct_type, field_names, parent_type_info, node)
+    class_type_info = ClassTypeInfo(struct_type, field_names, field_llvm_types, parent_type_info, node)
 
     # Register the class type info in your type system.
     # This makes the 'Node' source type name map to the 'class_type_info' object,
@@ -407,4 +408,5 @@ def handle_enum(self, node: ASTNode.Enum, **kwargs):
     
     return None
 def handle_union(self, node, **kwargs):
+    print("WARNING: union codegen handler is not defined!")
     pass
