@@ -31,7 +31,7 @@ class Compiler:
     def __init__(self, file, debug=False, dump_ast=False, dump_tokens=False, dump_defines=False, 
                  dump_preprocessed=False, dump_llvmir=False, triple=None, target=None, output_file=None,
                  emit_llvm=False, compile_only=False, link_libs=None, lib_paths=None, object_files=None):
-        self.version = "0.1.0"  
+        self.version = "0.1.1"  
         self.file = os.path.abspath(file)
         self.file_directory = os.path.dirname(self.file)
         self.working_directory = os.getcwd()
