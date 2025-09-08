@@ -2,7 +2,8 @@ class Person{
     U8 age;
     U8* name;
 
-    U0 say_hi(Person* self){
+    U0 change_age(Person self, U8 age){
+        self.age = age;
     }
 };
 
@@ -17,7 +18,7 @@ U32 main(){
 
     p.name = name;
 
-    p.say_hi();
+    p.change_age(16);
 
     return 0;
 }

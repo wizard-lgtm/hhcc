@@ -1048,7 +1048,7 @@ class ASTParser:
         current_token = self.current_token()
         if not current_token:
             return None
-    
+
         # Check for array element assignment by looking ahead
         if current_token._type == TokenType.LITERAL:
             # Look ahead to see if this matches pattern: identifier[...] = ...
@@ -1120,22 +1120,31 @@ class ASTParser:
         
         elif current_token._type == TokenType.LITERAL:
             next_token = self.peek_token()
-            if current_token.value in Datatypes.user_defined_types:
-                return self.variable_declaration(True)
-            elif next_token and next_token._type == TokenType.OPERATOR and next_token.value in assignment_operators.values(): 
-                return self.variable_assignment()
-            elif (next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["LPAREN"]) or \
-                (next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["SEMICOLON"]):
-                # Function call with parentheses or without parentheses
-                return self.function_call()
-            elif next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["DOT"]:
-                # Token sequence: p . say_hi (
+            
+            # FIRST: check for struct field or m§ethod access
+            print("Current Token", self.current_token())
+            print("NExt token", next_token)
+            if next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["DOT"]:
                 name_after_dot = self.peek_token(2)
                 paren_after_name = self.peek_token(3)
                 if paren_after_name and paren_after_name._type == TokenType.SEPARATOR and paren_after_name.value == separators["LPAREN"]:
                     return self.struct_method_call()
                 else:
                     return self.struct_field_assignment()
+            
+            # SECOND: check for user-defined type variable declarations
+            elif current_token.value in Datatypes.user_defined_types:
+                return self.variable_declaration(True)
+            
+            # THIRD: check for regular variable assignment
+            elif next_token and next_token._type == TokenType.OPERATOR and next_token.value in assignment_operators.values(): 
+                return self.variable_assignment()
+            
+            # FOURTH: check for function calls
+            elif (next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["LPAREN"]) or \
+                (next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["SEMICOLON"]):
+                # Function call with parentheses or without parentheses
+                return self.function_call()
                     
         if current_token._type == TokenType.COMMENT:
             return self.comment()
@@ -1146,7 +1155,6 @@ class ASTParser:
             return self.variable_decrement()
         
         self.syntax_error("Unexpected statement", current_token)
-
                         
     def parse_extern_declaration(self) -> ASTNode:
         """

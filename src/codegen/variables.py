@@ -118,10 +118,16 @@ def handle_variable_assignment(self, node: ASTNode.VariableAssignment, builder: 
     if '.' in var_name:
         struct_name, field_name = var_name.split('.')
         
+        print(f"DEBUG: Struct field assignment - struct_name: {struct_name}, field_name: {field_name}")
+        
         # Look up the struct in the symbol table
         struct_symbol = self.symbol_table.lookup(struct_name)
         if not struct_symbol:
             raise ValueError(f"Struct variable '{struct_name}' not found in symbol table.")
+        
+        print(f"DEBUG: struct_symbol.data_type: {struct_symbol.data_type}")
+        print(f"DEBUG: struct_symbol.llvm_value: {struct_symbol.llvm_value}")
+        print(f"DEBUG: struct_symbol.llvm_value.type: {struct_symbol.llvm_value.type}")
         
         # Get struct information
         struct_ptr = struct_symbol.llvm_value
@@ -134,23 +140,37 @@ def handle_variable_assignment(self, node: ASTNode.VariableAssignment, builder: 
         # Get the struct type definition
         struct_type_info = self.struct_table[struct_type_name]["class_type_info"]
         
+        print(f"DEBUG: struct_type_info.field_names: {struct_type_info.field_names}")
+        print(f"DEBUG: struct_type_info.llvm_type: {struct_type_info.llvm_type}")
+        print(f"DEBUG: struct_type_info.llvm_type.elements: {struct_type_info.llvm_type.elements}")
+        
         # Find the field index in the struct
         if field_name not in struct_type_info.field_names:
             raise ValueError(f"Field '{field_name}' not found in struct '{struct_type_name}'.")
         
-        # Get pointer to the field
-        field_ptr = self.get_struct_field_ptr(struct_name, field_name, builder)
+        field_ptr = self.get_struct_field_ptr(struct_ptr, struct_type_name, field_name, builder)
+        print(f"DEBUG: field_ptr: {field_ptr}")
+        print(f"DEBUG: field_ptr.type: {field_ptr.type}")
         
         # Get the field type from the struct type
         field_index = struct_type_info.field_names.index(field_name)
         field_type = struct_type_info.llvm_type.elements[field_index]
         
+        print(f"DEBUG: field_index: {field_index}")
+        print(f"DEBUG: field_type: {field_type}")
+        
         # Evaluate right-hand side expression
         value = self.handle_expression(node.value, builder, field_type)
+        print(f"DEBUG: value: {value}")
+        print(f"DEBUG: value.type: {value.type}")
         
         # Handle type casting if needed
         if value.type != field_type:
+            print(f"DEBUG: Type mismatch, casting from {value.type} to {field_type}")
             value = self._cast_value(value, field_type, builder)
+            print(f"DEBUG: After casting - value.type: {value.type}")
+        
+        print(f"DEBUG: About to store {value.type} to {field_ptr.type}")
         
         # Store the value in the field
         builder.store(value, field_ptr)

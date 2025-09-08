@@ -189,9 +189,6 @@ def handle_function_call(self, node, builder: ir.IRBuilder, var_type=None, **kwa
 
         # Get expected parameter type
         expected_type = expected_arg_types[i]
-        
-        print(arguments)
-
         # Cast if necessary using your existing casting logic
         if llvm_arg.type != expected_type:
             try:

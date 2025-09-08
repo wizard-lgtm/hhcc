@@ -274,10 +274,7 @@ def handle_class_method_call(self, node, builder: ir.IRBuilder, **kwargs):
                         f"(plus self), but {provided_user_args} were provided")
     
     # Create self reference node
-    self_ref = ASTNode.ExpressionNode(
-    NodeType.REFERENCE,
-    left=ASTNode.ExpressionNode(NodeType.LITERAL, value=object_name)
-    )
+    self_ref = ASTNode.ExpressionNode(NodeType.LITERAL, value=object_name)
 
     
     # Create modified function call node with self as first argument
