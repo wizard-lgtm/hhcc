@@ -43,40 +43,64 @@ def _cast_value_with_pointer_level(self, value: ir.Value, target_type: Any, buil
 
 
 
-
-
 def _cast_value(self, value, target_type, builder):
     """Casts a value to the target LLVM type, inserting necessary instructions."""
     from llvmlite import ir
-
     src_type = value.type
-
+    
+    # DEBUG: Print detailed type information
+    print(f"=== CASTING DEBUG ===")
+    print(f"Source value: {value}")
+    print(f"Source type: {src_type} (type: {type(src_type)})")
+    print(f"Target type: {target_type} (type: {type(target_type)})")
+    print(f"Value representation: {repr(value)}")
+    
+    # Check if it's a struct type
+    if hasattr(src_type, 'name'):
+        print(f"Source type name: {src_type.name}")
+    if hasattr(target_type, 'name'):
+        print(f"Target type name: {target_type.name}")
+    
+    # Check if it's a pointer
+    if isinstance(src_type, ir.PointerType):
+        print(f"Source is pointer to: {src_type.pointee}")
+        if hasattr(src_type.pointee, 'name'):
+            print(f"Source pointee name: {src_type.pointee.name}")
+    
+    if isinstance(target_type, ir.PointerType):
+        print(f"Target is pointer to: {target_type.pointee}")
+        if hasattr(target_type.pointee, 'name'):
+            print(f"Target pointee name: {target_type.pointee.name}")
+    
+    print(f"==================")
+    
     # Handle Same-Type Pass-Through
     if src_type == target_type:
+        print("Types match, returning value as-is")
         return value
-
+    
     # Integer to Integer
     if isinstance(target_type, ir.IntType) and isinstance(src_type, ir.IntType):
         if target_type.width > src_type.width:
             return builder.sext(value, target_type, name="sext") if Datatypes.is_signed_type(str(target_type)) else builder.zext(value, target_type, name="zext")
         else:
             return builder.trunc(value, target_type, name="trunc")
-
+    
     # Float to Float
     if isinstance(target_type, (ir.FloatType, ir.DoubleType)) and isinstance(src_type, (ir.FloatType, ir.DoubleType)):
         if isinstance(target_type, ir.DoubleType) and isinstance(src_type, ir.FloatType):
             return builder.fpext(value, target_type, name="fpext")
         elif isinstance(target_type, ir.FloatType) and isinstance(src_type, ir.DoubleType):
             return builder.fptrunc(value, target_type, name="fptrunc")
-
+    
     # Int to Float
     if isinstance(target_type, (ir.FloatType, ir.DoubleType)) and isinstance(src_type, ir.IntType):
         return builder.sitofp(value, target_type, name="sitofp") if Datatypes.is_signed_type(str(src_type)) else builder.uitofp(value, target_type, name="uitofp")
-
+    
     # Float to Int
     if isinstance(target_type, ir.IntType) and isinstance(src_type, (ir.FloatType, ir.DoubleType)):
         return builder.fptosi(value, target_type, name="fptosi") if Datatypes.is_signed_type(target_type) else builder.fptoui(value, target_type, name="fptoui")
-
+    
     # Pointer to Pointer
     if isinstance(target_type, ir.PointerType) and isinstance(src_type, ir.PointerType):
         return builder.bitcast(value, target_type, name="ptr_cast")
@@ -98,6 +122,26 @@ def _cast_value(self, value, target_type, builder):
         # Comparing with zero to convert to boolean (0 = false, non-zero = true)
         zero = ir.Constant(src_type, 0)
         return builder.icmp_unsigned('!=', value, zero, name="int_to_bool")
-
-    raise TypeError(f"Incompatible types for assignment: {src_type} cannot be assigned to {target_type}")
     
+    # NEW: Handle struct to field access (this is probably what you need)
+    # If we have a struct value but need a pointer, this might be a field access issue
+    if isinstance(src_type, ir.LiteralStructType) and isinstance(target_type, ir.PointerType):
+        # This suggests the struct value wasn't properly converted to a field access
+        # This is likely a parsing/expression handling issue, not a casting issue
+        raise TypeError(f"Cannot cast struct value to pointer - this suggests a field access was not properly handled. "
+                       f"Check that 'self.field' expressions are being processed correctly. "
+                       f"Got {src_type} but expected {target_type}")
+    
+    # Handle struct pointer to field type access
+    if (isinstance(src_type, ir.PointerType) and 
+        hasattr(src_type.pointee, 'name') and 
+        src_type.pointee.name and 
+        src_type.pointee.name.startswith('%struct.')):
+        
+        # This case handles when we have a struct pointer but need to access a field
+        # However, this should be handled by the expression processor, not the caster
+        raise TypeError(f"Struct field access not properly handled in expression processing. "
+                       f"Expected field access to be resolved before casting. "
+                       f"Got {src_type} but expected {target_type}")
+    
+    raise TypeError(f"Incompatible types for assignment: {src_type} cannot be assigned to {target_type}")

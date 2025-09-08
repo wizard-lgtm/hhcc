@@ -5,7 +5,10 @@ from astnodes import *
 from lexer import *
 from .symboltable import Symbol, SymbolKind, create_function_symbol
 
-def handle_function_definition(self, node: ASTNode.FunctionDefinition, builder: Optional[ir.IRBuilder] = None, **kwargs):
+if (TYPE_CHECKING):
+    from .base import Codegen
+
+def handle_function_definition(self: "Codegen", node: ASTNode.FunctionDefinition, builder: Optional[ir.IRBuilder] = None, **kwargs):
     """Handle function definition with the new symbol table."""
     name = node.name
     return_type = Datatypes.to_llvm_type(node.return_type)
@@ -16,11 +19,9 @@ def handle_function_definition(self, node: ASTNode.FunctionDefinition, builder: 
 
     # Parse args
     for param in node_params:
-        # Step 1: get base type
-        if param.is_user_typed:
-            base_type = Datatypes.to_llvm_type(param.var_type)
-        else:
-            base_type = self.type_map[param.var_type]
+
+        base_type = Datatypes.to_llvm_type(param.var_type)
+
 
         # Step 2: apply pointer levels
         llvm_type = base_type
@@ -189,6 +190,8 @@ def handle_function_call(self, node, builder: ir.IRBuilder, var_type=None, **kwa
         # Get expected parameter type
         expected_type = expected_arg_types[i]
         
+        print(arguments)
+
         # Cast if necessary using your existing casting logic
         if llvm_arg.type != expected_type:
             try:
