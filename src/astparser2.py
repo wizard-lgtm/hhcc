@@ -1129,9 +1129,14 @@ class ASTParser:
                 # Function call with parentheses or without parentheses
                 return self.function_call()
             elif next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["DOT"]:
-                # Struct field assignment: t.a = 1;
-                return self.struct_field_assignment()
-        
+                # Token sequence: p . say_hi (
+                name_after_dot = self.peek_token(2)
+                paren_after_name = self.peek_token(3)
+                if paren_after_name and paren_after_name._type == TokenType.SEPARATOR and paren_after_name.value == separators["LPAREN"]:
+                    return self.struct_method_call()
+                else:
+                    return self.struct_field_assignment()
+                    
         if current_token._type == TokenType.COMMENT:
             return self.comment()
         
@@ -1529,6 +1534,58 @@ class ASTParser:
         
         return ASTNode.ArrayElementAssignment(array_name, index_expr, value_expr)
 
+    def struct_method_call(self):
+        """Parse struct method calls like p.say_hi()"""
+        # Get struct name
+        struct_name = self.current_token().value
+        self.next_token()  # Consume struct name
+        
+        # Consume the dot
+        if not self.current_token() or self.current_token().value != separators["DOT"]:
+            self.syntax_error("Expected '.' for method call", self.current_token())
+        self.next_token()
+        
+        # Get method name
+        if not self.current_token() or self.current_token()._type != TokenType.LITERAL:
+            self.syntax_error("Expected method name after '.'", self.current_token())
+        method_name = self.current_token().value
+        self.next_token()
+        
+        # Parse arguments (same logic as function_call)
+        if not self.current_token() or self.current_token().value != separators["LPAREN"]:
+            self.syntax_error("Expected '(' for method call", self.current_token())
+        
+        args = []
+        peek_token = self.peek_token()
+        if peek_token and peek_token.value != separators["RPAREN"]:
+            self.next_token()  # Consume the '('
+            
+            # Parse arguments until we hit the closing parenthesis
+            while True:
+                arg = self.parse_expression()
+                args.append(arg)
+                
+                # Check for comma or closing parenthesis
+                if not self.current_token():
+                    self.syntax_error("Unexpected end of input during argument parsing", self.peek_token(-1))
+                    
+                if self.current_token().value == separators["RPAREN"]:
+                    break  # Exit the loop
+                elif self.current_token().value != separators["COMMA"]:
+                    self.syntax_error("Expected ',' or ')' in arguments", self.current_token())
+                
+                self.next_token()  # Consume the comma
+        else:
+            self.next_token()  # Consume the '('
+        
+        # Check for closing parenthesis
+        if not self.current_token() or self.current_token().value != separators["RPAREN"]:
+            self.syntax_error("Expected ')' to close method call", self.current_token())
+        
+        self.next_token()  # Consume the ')'
+        self.check_semicolon()
+        
+        return ASTNode.MethodCall(struct_name, method_name, args)
 
     def parse(self):
         
