@@ -122,12 +122,13 @@ class ASTNode:
 
     class VariableDeclaration:
         def __init__(self, var_type: str, name: str, value: Optional[Any] = None, 
-                    is_user_typed: bool = False, pointer_level: int = 0):
+                    is_user_typed: bool = False, pointer_level: int = 0, is_mutable=True):
             self.var_type: str = var_type
             self.name: str = name
             self.value: Optional[Any] = value
             self.is_user_typed: bool = is_user_typed
             self.pointer_level: int = pointer_level
+            self.is_mutable: bool = is_mutable
 
         def print_tree(self, prefix: str = "") -> str:
             result = f"{prefix}VariableDeclaration\n"
