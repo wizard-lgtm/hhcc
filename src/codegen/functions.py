@@ -63,9 +63,15 @@ def handle_function_definition(self: "Codegen", node: ASTNode.FunctionDefinition
         
         # Define function parameters in the symbol table
         for i, (param, llvm_param) in enumerate(zip(node_params, func.args)):
-            # Allocate space for the parameter
-            param_ptr = local_builder.alloca(llvm_param.type, name=f"{param.name}_param")
-            local_builder.store(llvm_param, param_ptr)
+
+            # If this is self (pointer), or immutable, just use the SSA value
+            if param.name == "self" or not param.is_mutable:
+                llvm_value = llvm_param
+            else:
+                # Only allocate space for mutable non-pointer parameters
+                param_ptr = local_builder.alloca(llvm_param.type, name=f"{param.name}_param")
+                local_builder.store(llvm_param, param_ptr)
+                llvm_value = param_ptr
             
             # Add parameter to symbol table
             param_symbol = Symbol(
@@ -74,7 +80,7 @@ def handle_function_definition(self: "Codegen", node: ASTNode.FunctionDefinition
                 ast_node=param,
                 data_type=param.var_type,
                 llvm_type=llvm_param.type,
-                llvm_value=param_ptr,
+                llvm_value=llvm_value,
                 scope_level=self.symbol_table.current_scope_level
             )
             self.symbol_table.define(param_symbol)

@@ -228,7 +228,6 @@ def handle_class(self, node: ASTNode.Class, **kwargs):
             parameters=all_params,
             body=method.body
         )
-        
         # Process the method as a regular function using the existing handler
         from .functions import handle_function_definition
         handle_function_definition(self, mangled_method, **kwargs)
@@ -274,7 +273,7 @@ def handle_class_method_call(self, node, builder: ir.IRBuilder, **kwargs):
                         f"(plus self), but {provided_user_args} were provided")
     
     # Create self reference node
-    self_ref = ASTNode.ExpressionNode(NodeType.LITERAL, value=object_name)
+    self_ref = ASTNode.ExpressionNode(NodeType.REFERENCE, left=ASTNode.ExpressionNode(node_type=NodeType.LITERAL, value=object_name))
 
     
     # Create modified function call node with self as first argument
