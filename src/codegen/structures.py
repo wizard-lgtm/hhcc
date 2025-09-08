@@ -103,6 +103,28 @@ class ClassTypeInfo:
                             if name == field_name:
                                 return i
                     raise Exception(f"Unknown field '{field_name}' in class '{self.node}'")
+
+            def get_field_ptr(self, struct_ptr, field_name: str, builder: ir.IRBuilder):
+                """
+                Returns an LLVM pointer to the field inside the struct.
+                
+                struct_ptr: %struct.ClassName* (LLVM pointer to struct)
+                class_info: ClassTypeInfo instance for the class
+                field_name: str, name of the field
+                builder: IRBuilder to emit instructions
+                """
+                # Get the field index
+                field_index = self.get_field_index(field_name)
+                
+                # LLVM GEP: first 0 for the struct itself, then field index
+                ptr = builder.gep(
+                    struct_ptr,
+                    [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), field_index)],
+                    inbounds=True
+                )
+                
+                return ptr
+
             def __repr__(self):
                 return f"<ClassTypeInfo: fields={self.field_names}, parent={self.parent}, llvm_type={self.llvm_type}>"
 
@@ -175,10 +197,92 @@ def handle_class(self, node: ASTNode.Class, **kwargs):
     # Ensure you are storing the class name as the key.
     self.struct_table[node.name] = {'name': node.name, 'class_type_info': class_type_info}
 
+    # --- NEW: Process class methods ---
+    # Register each method as a function with the naming convention ClassName_methodName
+    for method in node.methods:
+        # Create the mangled method name
+        mangled_name = f"{node.name}_{method.name}"
+        
+        # Create a new function definition node with the mangled name
+        # The first parameter should be a pointer to the class instance (self)
+        
+        # Create self parameter
+        self_param = ASTNode.VariableDeclaration(
+            var_type=node.name,
+            name="self",
+            pointer_level=1,  # self is always a pointer to the class
+            is_user_typed=True
+        )
+        
+        # Combine self parameter with existing parameters
+        all_params = [self_param] + method.parameters
+        
+        # Create a new function definition with the mangled name and updated parameters
+        mangled_method = ASTNode.FunctionDefinition(
+            name=mangled_name,
+            return_type=method.return_type,
+            parameters=all_params,
+            body=method.body
+        )
+        
+        # Process the method as a regular function using the existing handler
+        from .functions import handle_function_definition
+        handle_function_definition(self, mangled_method, **kwargs)
+        
+        if self.compiler.debug:
+            print(f"Registered method {method.name} as function {mangled_name}")
+
     # This function typically doesn't return an LLVM value, just defines the type.
     return None
 
-
+def handle_class_method_call(self, node, builder: ir.IRBuilder, **kwargs):
+    """Handle class method calls - automatically injects self parameter."""
+    # Extract components
+    object_name = node.object_name
+    method_name = node.method_name
+    
+    provided_args = node.args if node.args else []
+    
+    # Look up object
+    object_symbol = self.symbol_table.lookup(object_name)
+    if not object_symbol:
+        raise ValueError(f"Object '{object_name}' not found in symbol table")
+    
+    # Create actual function name (however you're naming methods)
+    actual_function_name = f"{object_symbol.data_type}_{method_name}"
+    
+    # Verify method exists
+    func_symbol = self.symbol_table.lookup(actual_function_name)
+    if not func_symbol:
+        raise ValueError(f"Method '{actual_function_name}' not found")
+    
+    # Check parameter count
+    func = func_symbol.llvm_value
+    print(len(func.function_type.args))
+    expected_total_args = len(func.function_type.args)  # Total expected (including self)
+    provided_user_args = len(provided_args)             # User-provided args (excluding self)
+    
+    # The method expects: self + user_provided_args
+    # So expected_total_args should equal 1 + provided_user_args
+    expected_user_args = expected_total_args - 1  # Subtract 1 for self
+    
+    if provided_user_args != expected_user_args:
+        raise ValueError(f"Method '{method_name}' expects {expected_user_args} arguments "
+                        f"(plus self), but {provided_user_args} were provided")
+    
+    # Create self reference node
+    self_ref = ASTNode.ExpressionNode(NodeType.REFERENCE, value=object_name)
+    
+    # Create modified function call node with self as first argument
+    modified_call = ASTNode.FunctionCall(
+        name=actual_function_name,
+        arguments=[self_ref] + provided_args,  # self + user args
+        has_parentheses=True
+    )
+    
+    # Use existing function call handler
+    from .functions import handle_function_call
+    return handle_function_call(self, modified_call, builder, **kwargs)
 
 def _determine_enum_type(self, members):
     """

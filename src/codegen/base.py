@@ -136,8 +136,8 @@ class Codegen:
             ASTNode.Enum: self.handle_enum,
             ASTNode.ArrayElementAssignment: self.handle_array_element_assignment,
             ASTNode.ArrayDeclaration: self.handle_array_declaration,
-            ASTNode.InlineAsm: self.handle_inline_asm
-            
+            ASTNode.InlineAsm: self.handle_inline_asm,
+            ASTNode.MethodCall: self.handle_class_method_call 
         }
 
         # Define correct LLVM types with appropriate signedness
@@ -250,6 +250,7 @@ class Codegen:
         elif type.endswith('*'):
             base_type = self.get_llvm_type(type[:-1]) # delete the * symbol and get it's type
             return ir.PointerType(base_type) 
+
         else: # other types (classes)
             # TODO! implement
             print("Non-Primitive types did not implemented. Returning a generic type (U8*)")
