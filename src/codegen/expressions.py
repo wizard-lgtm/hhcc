@@ -1312,8 +1312,6 @@ def get_struct_field_ptr(self, struct_ptr, struct_type_name: str, field_name: st
 
     result = builder.gep(struct_ptr, [zero, field_idx], name=f"{struct_type_name}_{field_name}_ptr")
     
-    print("GEP result in get_struct_field_ptr", result)
-
     return result
 
 

@@ -49,35 +49,15 @@ def _cast_value(self, value, target_type, builder):
     src_type = value.type
     
     # DEBUG: Print detailed type information
-    print(f"=== CASTING DEBUG ===")
-    print(f"Source value: {value}")
-    print(f"Source type: {src_type} (type: {type(src_type)})")
-    print(f"Target type: {target_type} (type: {type(target_type)})")
-    print(f"Value representation: {repr(value)}")
+    if self.compiler.debug:
+        print(f"=== CASTING DEBUG ===")
+        print(f"Source value: {value}")
+        print(f"Source type: {src_type} (type: {type(src_type)})")
+        print(f"Target type: {target_type} (type: {type(target_type)})")
+        print(f"Value representation: {repr(value)}")
     
-    # Check if it's a struct type
-    if hasattr(src_type, 'name'):
-        print(f"Source type name: {src_type.name}")
-    if hasattr(target_type, 'name'):
-        print(f"Target type name: {target_type.name}")
-    
-    # Check if it's a pointer
-    if isinstance(src_type, ir.PointerType):
-        print(f"Source is pointer to: {src_type.pointee}")
-        if hasattr(src_type.pointee, 'name'):
-            print(f"Source pointee name: {src_type.pointee.name}")
-    
-    if isinstance(target_type, ir.PointerType):
-        print(f"Target is pointer to: {target_type.pointee}")
-        if hasattr(target_type.pointee, 'name'):
-            print(f"Target pointee name: {target_type.pointee.name}")
-    
-    print(f"==================")
-    
-    # Handle Same-Type Pass-Through
-    if src_type == target_type:
-        print("Types match, returning value as-is")
-        return value
+
+
     
     # Integer to Integer
     if isinstance(target_type, ir.IntType) and isinstance(src_type, ir.IntType):

@@ -37,6 +37,8 @@ def count_pointer_level(type_str: str) -> tuple[str, int]:
     return base_type, pointer_level
 
 
+
+
 def apply_pointer_level(base_llvm_type: Any, pointer_level: int) -> Any:
     """
     Apply pointer level to an LLVM base type.
@@ -188,6 +190,11 @@ class Codegen:
         self.signed_int_types = {i8_type, i16_type, i32_type, i64_type}
         self.unsigned_int_types = {bool_type, u8_type, u16_type, u32_type, u64_type}
         self.float_types = {f32_type, f64_type}
+
+    def debug_print(self, *args):
+        if getattr(self, "codegen", None) and getattr(self.codegen, "debug", False):
+            print(f"DEBUG:", {*args})
+
 
     def generation_error(self, message: str, node: 'ASTNode'):
         """Report an error with a formatted message, based on the ASTNode (instead of token)."""

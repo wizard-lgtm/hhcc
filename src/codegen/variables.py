@@ -111,91 +111,80 @@ def handle_variable_declaration(self, node: ASTNode.VariableDeclaration, builder
     return var  # Return the variable pointer
 def handle_variable_assignment(self, node: ASTNode.VariableAssignment, builder: ir.IRBuilder, **kwargs):
     """Handle variable assignment with the new symbol table."""
-    # Get variable name and check if it's a struct field access
     var_name = node.name
-    
+
+    def debug_print(*args):
+        if getattr(self, "codegen", None) and getattr(self.codegen, "debug", False):
+            print(*args)
+
     # Check if this is a struct field assignment (contains a dot)
     if '.' in var_name:
         struct_name, field_name = var_name.split('.')
-        
-        print(f"DEBUG: Struct field assignment - struct_name: {struct_name}, field_name: {field_name}")
-        
+        debug_print(f"Struct field assignment - struct_name: {struct_name}, field_name: {field_name}")
+
         # Look up the struct in the symbol table
         struct_symbol = self.symbol_table.lookup(struct_name)
         if not struct_symbol:
             raise ValueError(f"Struct variable '{struct_name}' not found in symbol table.")
-        
-        print(f"DEBUG: struct_symbol.data_type: {struct_symbol.data_type}")
-        print(f"DEBUG: struct_symbol.llvm_value: {struct_symbol.llvm_value}")
-        print(f"DEBUG: struct_symbol.llvm_value.type: {struct_symbol.llvm_value.type}")
-        
-        # Get struct information
+
+        debug_print(f"struct_symbol.data_type: {struct_symbol.data_type}")
+        debug_print(f"struct_symbol.llvm_value: {struct_symbol.llvm_value}")
+        debug_print(f"struct_symbol.llvm_value.type: {struct_symbol.llvm_value.type}")
+
         struct_ptr = struct_symbol.llvm_value
         struct_type_name = struct_symbol.data_type
-        
-        # Ensure the struct type exists in the struct table
+
         if struct_type_name not in self.struct_table:
             raise ValueError(f"Struct type '{struct_type_name}' not found in struct table.")
-        
-        # Get the struct type definition
+
         struct_type_info = self.struct_table[struct_type_name]["class_type_info"]
-        
-        print(f"DEBUG: struct_type_info.field_names: {struct_type_info.field_names}")
-        print(f"DEBUG: struct_type_info.llvm_type: {struct_type_info.llvm_type}")
-        print(f"DEBUG: struct_type_info.llvm_type.elements: {struct_type_info.llvm_type.elements}")
-        
-        # Find the field index in the struct
+        debug_print(f"struct_type_info.field_names: {struct_type_info.field_names}")
+        debug_print(f"struct_type_info.llvm_type: {struct_type_info.llvm_type}")
+        debug_print(f"struct_type_info.llvm_type.elements: {struct_type_info.llvm_type.elements}")
+
         if field_name not in struct_type_info.field_names:
             raise ValueError(f"Field '{field_name}' not found in struct '{struct_type_name}'.")
-        
-        print(f"DEBUG: struct_ptr: {struct_ptr}")
-        print(f"DEBUG: struct_type_name: {struct_type_name}")
-        print(f"DEBUG: field_name: {field_name}")
+
+        debug_print(f"struct_ptr: {struct_ptr}")
+        debug_print(f"struct_type_name: {struct_type_name}")
+        debug_print(f"field_name: {field_name}")
 
         field_ptr = self.get_struct_field_ptr(struct_ptr, struct_type_name, field_name, builder)
-        print(f"DEBUG: field_ptr: {field_ptr}")
-        print(f"DEBUG: field_ptr.type: {field_ptr.type}")
-        
-        # Get the field type from the struct type
+        debug_print(f"field_ptr: {field_ptr}")
+        debug_print(f"field_ptr.type: {field_ptr.type}")
+
         field_index = struct_type_info.field_names.index(field_name)
         field_type = struct_type_info.llvm_type.elements[field_index]
-        
-        print(f"DEBUG: field_index: {field_index}")
-        print(f"DEBUG: field_type: {field_type}")
-        
-        # Evaluate right-hand side expression
+
+        debug_print(f"field_index: {field_index}")
+        debug_print(f"field_type: {field_type}")
+
         value = self.handle_expression(node.value, builder, field_type)
-        print(f"DEBUG: value: {value}")
-        print(f"DEBUG: value.type: {value.type}")
-        
-        # Handle type casting if needed
+        debug_print(f"value: {value}")
+        debug_print(f"value.type: {value.type}")
+
         if value.type != field_type:
-            print(f"DEBUG: Type mismatch, casting from {value.type} to {field_type}")
+            debug_print(f"Type mismatch, casting from {value.type} to {field_type}")
             value = self._cast_value(value, field_type, builder)
-            print(f"DEBUG: After casting - value.type: {value.type}")
-        
-        print(f"DEBUG: About to store {value.type} to {field_ptr.type}")
-        
-        # Store the value in the field
+            debug_print(f"After casting - value.type: {value.type}")
+
+        debug_print(f"About to store {value.type} to {field_ptr.type}")
         builder.store(value, field_ptr)
+
     else:
         # Regular variable assignment
         symbol = self.symbol_table.lookup(var_name)
         if not symbol:
             raise ValueError(f"Variable '{var_name}' not found in symbol table. It must be declared before assignment.")
-        
-        # Get variable pointer and type
+
         var_ptr = symbol.llvm_value
         var_type = var_ptr.type.pointee
-        
-        # Evaluate right-hand side expression
+
         value = self.handle_expression(node.value, builder, var_type)
-        
-        # Handle type casting if types don't match
+
         if value.type != var_type:
             value = self._cast_value(value, var_type, builder)
-        
-        # Store the evaluated value into the variable
+
         builder.store(value, var_ptr)
 
 def handle_variable_increment(self, node, builder, **kwargs):

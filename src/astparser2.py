@@ -1122,8 +1122,6 @@ class ASTParser:
             next_token = self.peek_token()
             
             # FIRST: check for struct field or m§ethod access
-            print("Current Token", self.current_token())
-            print("NExt token", next_token)
             if next_token and next_token._type == TokenType.SEPARATOR and next_token.value == separators["DOT"]:
                 name_after_dot = self.peek_token(2)
                 paren_after_name = self.peek_token(3)
