@@ -2,6 +2,7 @@ from symtable import Symbol
 from llvmlite import ir, binding
 from typing import TYPE_CHECKING, Dict, Callable, Type
 from astnodes import *
+from codegen.structures import ClassTypeInfo
 from lexer import *
 from .symboltable import create_array_symbol, create_variable_symbol
 
@@ -41,7 +42,8 @@ def apply_pointer_level(base_llvm_type: Any, pointer_level: int) -> Any:
         result_type = ir.PointerType(result_type)
     return result_type
 def handle_variable_declaration(self, node: ASTNode.VariableDeclaration, builder: ir.IRBuilder, **kwargs):
-    """Handle variable declaration with multilevel pointer support."""
+    """Handle variable declaration with class instance support."""
+    
     
     # Parse the type string to determine base type and pointer level
     base_type_name, pointer_level = count_pointer_level(node.var_type)
@@ -55,6 +57,10 @@ def handle_variable_declaration(self, node: ASTNode.VariableDeclaration, builder
     if self.compiler.debug:
         print(f"Variable declaration: {node.name}, base_type: {base_type_name}, pointer_level: {pointer_level}")
     
+    # Check if this is a class type
+    type_info = Datatypes.get_type(base_type_name)
+    is_class_type = isinstance(type_info, ClassTypeInfo)
+    
     # Get the base LLVM type
     base_type = Datatypes.to_llvm_type(base_type_name)
     if base_type is None:
@@ -62,7 +68,6 @@ def handle_variable_declaration(self, node: ASTNode.VariableDeclaration, builder
     
     # Apply pointer levels to get the final variable type
     var_type = apply_pointer_level(base_type, pointer_level)
-        
     
     # Allocate space for the variable (this creates a pointer to var_type)
     var = builder.alloca(var_type, name=node.name)
@@ -79,12 +84,12 @@ def handle_variable_declaration(self, node: ASTNode.VariableDeclaration, builder
     )
     self.symbol_table.define(symbol)
     
-    # Handle initial value if present
+    # Handle initialization
     if node.value:
         if self.compiler.debug:
-            print(f"Processing initial value for {node.name}, pointer_level: {pointer_level}")
+            print(f"Processing initial value for {node.name}")
         
-        # Pass pointer level information to expression handler
+        # Use the existing _expression_handle_literal function for proper string handling
         value = self.handle_expression(node.value, builder, base_type, pointer_level=pointer_level)
             
         if not value:
@@ -96,20 +101,41 @@ def handle_variable_declaration(self, node: ASTNode.VariableDeclaration, builder
                 value = ir.Constant(var_type, 0)
         else:
             # Apply proper type casting before storing
-            value = self._cast_value(value, var_type, builder)
+            if hasattr(self, '_cast_value'):
+                value = self._cast_value(value, var_type, builder)
                 
         builder.store(value, var)
+        
+    elif is_class_type and pointer_level == 0:
+        # This is a direct class instance (not a pointer), initialize with defaults
+        if self.compiler.debug:
+            print(f"Initializing class instance {node.name} with default values")
+        
+        # Get class info and initialize fields with default values
+        class_info = type_info
+        fields_with_defaults = class_info.get_fields_with_defaults()
+        
+        for field in fields_with_defaults:
+            if field.default_llvm_value:
+                # Get pointer to field in the allocated instance
+                field_ptr = class_info.get_field_ptr(var, field.name, builder)
+                
+                # Store the default value
+                builder.store(field.default_llvm_value, field_ptr)
+                
+                if self.compiler.debug:
+                    print(f"Initialized field {field.name} with default value")
+    
     else:
-        # Initialize with default values
+        # Initialize with default values for non-class types
         if pointer_level > 0:
             # Initialize pointers to null by default
             null_ptr = ir.Constant(var_type, None)
             builder.store(null_ptr, var)
-        # Non-pointer types can be left uninitialized or initialized to zero
-        # depending on language semantics
-
     
-    return var  # Return the variable pointer
+    return var
+
+
 def handle_variable_assignment(self, node: ASTNode.VariableAssignment, builder: ir.IRBuilder, **kwargs):
     """Handle variable assignment with the new symbol table."""
     var_name = node.name
@@ -118,56 +144,50 @@ def handle_variable_assignment(self, node: ASTNode.VariableAssignment, builder: 
         if getattr(self, "codegen", None) and getattr(self.codegen, "debug", False):
             print(*args)
 
-
-    # Check if this is a struct field assignment (contains a dot)
+    # Check if this is a struct/class field assignment (contains a dot)
     if '.' in var_name:
         struct_name, field_name = var_name.split('.')
-        debug_print(f"Struct field assignment - struct_name: {struct_name}, field_name: {field_name}")
+        debug_print(f"Struct/Class field assignment - struct_name: {struct_name}, field_name: {field_name}")
 
-        # Look up the struct in the symbol table
+        # Look up the struct/class variable in the symbol table
         struct_symbol = self.symbol_table.lookup(struct_name)
         if not struct_symbol:
-            raise ValueError(f"Struct variable '{struct_name}' not found in symbol table.")
-
-        debug_print(f"struct_symbol.data_type: {struct_symbol.data_type}")
-        debug_print(f"struct_symbol.llvm_value: {struct_symbol.llvm_value}")
-        debug_print(f"struct_symbol.llvm_value.type: {struct_symbol.llvm_value.type}")
+            raise ValueError(f"Struct/Class variable '{struct_name}' not found in symbol table.")
 
         struct_ptr = struct_symbol.llvm_value
         struct_type_name = struct_symbol.data_type
 
         if struct_type_name not in self.struct_table:
-            raise ValueError(f"Struct type '{struct_type_name}' not found in struct table.")
-        struct_type_info = self.struct_table[struct_type_name]["class_type_info"]
-        debug_print(f"struct_type_info.field_names: {struct_type_info.field_names}")
-        debug_print(f"struct_type_info.llvm_type: {struct_type_info.llvm_type}")
-        debug_print(f"struct_type_info.llvm_type.elements: {struct_type_info.llvm_type.elements}")
+            raise ValueError(f"Struct/Class type '{struct_type_name}' not found in struct table.")
 
-        if field_name not in struct_type_info.field_names:
-            raise ValueError(f"Field '{field_name}' not found in struct '{struct_type_name}'.")
+        struct_type_info: ClassTypeInfo = self.struct_table[struct_type_name]["class_type_info"]
 
+        # Validate field
+        if not struct_type_info.has_field(field_name):
+            raise ValueError(f"Field '{field_name}' not found in struct/class '{struct_type_name}'.")
+
+        field_info = struct_type_info.get_field(field_name)
         debug_print(f"struct_ptr: {struct_ptr}")
         debug_print(f"struct_type_name: {struct_type_name}")
-        debug_print(f"field_name: {field_name}")
+        debug_print(f"field_info: {field_info}")
 
-        field_ptr = self.get_struct_field_ptr(struct_ptr, struct_type_name, field_name, builder)
+        # Get pointer to the field
+        field_ptr = struct_type_info.get_field_ptr(struct_ptr, field_name, builder)
         debug_print(f"field_ptr: {field_ptr}")
         debug_print(f"field_ptr.type: {field_ptr.type}")
 
-        field_index = struct_type_info.field_names.index(field_name)
-        field_type = struct_type_info.llvm_type.elements[field_index]
-        field_mutable = struct_type_info.field_mutable[field_index]
+        if not field_info.is_mutable:
+            raise ValueError(f"Field '{field_name}' is not mutable in class '{struct_type_name}'.")
 
-        if not field_mutable:
-            raise ValueError(f"Field '{field_name}' is not mutable' in struct: {struct_type_name}'.")
-
-        debug_print(f"field_index: {field_index}")
+        field_type = field_info.llvm_type
         debug_print(f"field_type: {field_type}")
 
+        # Evaluate the value being assigned
         value = self.handle_expression(node.value, builder, field_type)
         debug_print(f"value: {value}")
         debug_print(f"value.type: {value.type}")
 
+        # Cast if needed
         if value.type != field_type:
             debug_print(f"Type mismatch, casting from {value.type} to {field_type}")
             value = self._cast_value(value, field_type, builder)
@@ -193,6 +213,7 @@ def handle_variable_assignment(self, node: ASTNode.VariableAssignment, builder: 
             value = self._cast_value(value, var_type, builder)
 
         builder.store(value, var_ptr)
+
 
 def handle_variable_increment(self, node, builder, **kwargs):
     # Find variable in symbol table
