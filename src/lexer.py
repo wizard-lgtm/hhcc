@@ -268,6 +268,8 @@ keywords = {
     "FALSE": "false",
     "VOLATILE": "volatile", #  # Used to indicate that a variable may be changed by external factors, such as hardware or other threads.
     "ENUM": "enum",  # Used to define a set of named integer constants.
+    "CONST": "const",
+    "STATIC": "static",
 }
 
 separators = {
@@ -483,30 +485,34 @@ class Lexer:
                 cursor = new_cursor
                 continue
 
-            # Handle Directives (they start with #)
             elif current_chr == '#':
                 start = cursor
-                # Find the directive name
-                directive_start = cursor
-                while cursor < len(source_code) and source_code[cursor] != ' ' and source_code[cursor] != '\n':
+                while cursor < len(source_code) and source_code[cursor] not in [' ', '\n', '"', '<']:
                     cursor += 1
-                
-                directive_name = source_code[directive_start:cursor]
-                
-                # Skip whitespace after directive name
-                while cursor < len(source_code) and source_code[cursor].isspace() and source_code[cursor] != '\n':
-                    cursor += 1
-                
-                # Capture the rest of the line as part of the directive
-                directive_start = cursor
-                while cursor < len(source_code) and source_code[cursor] != '\n':
-                    cursor += 1
-                
-                directive_value = source_code[start:cursor]
-                token = Token(TokenType.DIRECTIVE, directive_value, line, column)
+                directive_name = source_code[start:cursor]
+                token = Token(TokenType.DIRECTIVE, directive_name, line, column)
                 tokens.append(token)
                 column += cursor - start
+
+                # şimdi string veya <> yakala
+                if cursor < len(source_code) and source_code[cursor] in ['"', '<']:
+                    if source_code[cursor] == '"':
+                        string_token, new_cursor = self._handle_string_literal(cursor, line, column)
+                        tokens.append(string_token)
+                        column += new_cursor - cursor
+                        cursor = new_cursor
+                    else:
+                        # #include <stdio.h> tarzı
+                        start = cursor
+                        cursor += 1
+                        while cursor < len(source_code) and source_code[cursor] != '>':
+                            cursor += 1
+                        cursor += 1
+                        path = source_code[start:cursor]
+                        tokens.append(Token(TokenType.LITERAL, path, line, column))
+                        column += cursor - start
                 continue
+
 
             # Identifiers and Keywords
             elif current_chr.isalpha() or current_chr == "_":  # Start of an identifier/keyword
