@@ -1,4 +1,3 @@
-
 U64 stdout_write(U8* str, U64 len){
     U64 ret;
     U64 rax=1;
@@ -44,4 +43,11 @@ U0 print_int(U64 val){
         j++; k--;
     }
     stdout_write(buf, i);
+}
+
+U0 print_chr(U8 ch) {
+    U8 buf[2];
+    buf[0] = ch;
+    buf[1] = '\0';
+    print_str(buf);
 }
