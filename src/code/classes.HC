@@ -19,6 +19,9 @@ class Person{
  
 U32 main(){
 
+    Person p2;
+    p2.name = "XD";
+    p2.age = 21;
     Person p;
 
     U8* name = "TEST";
@@ -26,6 +29,8 @@ U32 main(){
     p.age = 10;
 
     p.name = name;
+
+    p = p2;
 
     p.change_age(16);
     p.say_age();
