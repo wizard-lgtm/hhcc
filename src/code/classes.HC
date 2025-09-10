@@ -38,5 +38,14 @@ U32 main(){
     print_str(p.test);
     print_chr('\n');
 
+    U8 i = 0;
+    while(true){
+        print_str("TEST");
+        print_int(i);
+        print_chr('\n');
+        break;
+        i++;
+    }
+
     return 0;
 }
