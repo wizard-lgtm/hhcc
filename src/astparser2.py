@@ -5,6 +5,22 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from compiler import Compiler  # Only for type hints
+
+class LHSModifiers:
+    """Class to hold left-hand-side modifiers for declarations"""
+    def __init__(self):
+        self.is_const: bool = False
+        self.is_static: bool = False
+        self.is_extern: bool = False
+        # Add more modifiers as needed
+    
+    def __repr__(self):
+        modifiers = []
+        if self.is_const: modifiers.append("const")
+        if self.is_static: modifiers.append("static")
+        if self.is_extern: modifiers.append("extern")
+        return f"LHSModifiers({', '.join(modifiers)})"
+
 class ASTParser: 
     code: str
     index: int
@@ -61,7 +77,39 @@ class ASTParser:
             print("Syntax Error: Token is None, something went wrong during parsing. Please check the input.")
 
 
-    def variable_declaration(self, user_typed=False):
+    def parse_lhs_modifiers(self) -> LHSModifiers:
+        """
+        Parse left-hand-side modifiers like const, static, extern, etc.
+        Returns a LHSModifiers object with parsed modifiers.
+        """
+        modifiers = LHSModifiers()
+        
+        while self.current_token():
+            token = self.current_token()
+            
+            if token._type == TokenType.KEYWORD:
+                if token.value == keywords.get("CONST", "const"):
+                    modifiers.is_const = True
+                    self.next_token()
+                elif token.value == keywords.get("STATIC", "static"):
+                    modifiers.is_static = True
+                    self.next_token()
+                elif token.value == keywords.get("EXTERN", "extern"):
+                    modifiers.is_extern = True
+                    self.next_token()
+                else:
+                    # Not a modifier, stop parsing modifiers
+                    break
+            else:
+                # Not a keyword, stop parsing modifiers
+                break
+
+
+    def variable_declaration(self, user_typed=False, modifiers: LHSModifiers = None):
+        """Enhanced variable declaration with LHS modifiers support"""
+        if modifiers is None:
+            modifiers = LHSModifiers()
+            
         var_type = self.current_token()
         self.next_token()  # Consume the type token
         list_of_declarations = []
@@ -83,15 +131,28 @@ class ASTParser:
             # Check if this is an array declaration by looking at current token
             if self.current_token() and self.current_token().value == separators["LBRACKET"]:
                 # Array declaration
-                return self.array_declaration(var_type.value, var_name.value, user_typed)
+                return self.array_declaration(var_type.value, var_name.value, user_typed, modifiers)
             
             # Regular variable declaration continues...
-            node = ASTNode.VariableDeclaration(var_type.value, var_name.value, None, user_typed, pointer_level=pointer_level)
+            node = ASTNode.VariableDeclaration(
+                var_type.value, 
+                var_name.value, 
+                None, 
+                user_typed, 
+                pointer_level=pointer_level,
+                is_mutable=not modifiers.is_const  # const makes it immutable
+            )
+            
+            # Apply modifiers to the node
+            node.modifiers = modifiers
             
             # Check for assignment
             if self.current_token() and self.current_token().value == operators["ASSIGN"]:
                 self.next_token()  # Move past '='
                 node.value = self.parse_expression()
+            elif modifiers.is_const:
+                # const variables must be initialized
+                self.syntax_error("const variable must be initialized", var_name)
             
             # Check semicolon or compound declaration
             if self.current_token().value == separators["COMMA"]:
@@ -109,11 +170,13 @@ class ASTParser:
                 self.syntax_error("Expected ',' or ';' after variable declaration", self.current_token())
         
         if len(list_of_declarations) > 1:
-            # If we have multiple declarations, create a block node
-            return ASTNode.CompoundVariableDeclaration(var_type=var_type.value, declarations=list_of_declarations)
-        # If it's a single declaration, return the node
+            # If we have multiple declarations, create a compound node with modifiers
+            compound_node = ASTNode.CompoundVariableDeclaration(var_type=var_type.value, declarations=list_of_declarations)
+            compound_node.modifiers = modifiers
+            return compound_node
         else:
             return node
+
     def variable_assignment(self):
         list_of_assignments = []
         while True:
@@ -515,7 +578,7 @@ class ASTParser:
         self.next_token()  # Consume the right brace
     
         return ASTNode.Block(nodes)
-    def function_declaration(self): 
+    def function_declaration(self, modifiers: LHSModifiers = LHSModifiers()): 
         func_name = "" 
         func_return_type = None 
         parameters = [] 
@@ -791,7 +854,11 @@ class ASTParser:
         return ASTNode.FunctionCall(func_name, args, has_parentheses)   
 
 
-    def class_declaration(self):
+    def class_declaration(self, modifiers: LHSModifiers = None):
+        """Enhanced class declaration with LHS modifiers support"""
+        if modifiers is None:
+            modifiers = LHSModifiers()
+            
         class_name = None
         parent_class = None
         fields = []
@@ -820,6 +887,9 @@ class ASTParser:
         self.next_token()  # consume '{'
 
         while self.current_token() and self.current_token().value != separators["RBRACE"]:
+            # Parse member modifiers for each field/method
+            member_modifiers = self.parse_lhs_modifiers()
+            
             # Start with type
             type_token = self.current_token()
             if not type_token or type_token._type != TokenType.KEYWORD:
@@ -838,12 +908,11 @@ class ASTParser:
             # Check if it's a function: look one more token after the identifier
             third_token = self.peek_token(star_count + 2)
             if third_token and third_token.value == separators["LPAREN"]:
-                func = self.function_declaration()
+                func = self.function_declaration(member_modifiers)
                 methods.append(func)
             else:
-                var = self.variable_declaration()
+                var = self.variable_declaration(modifiers=member_modifiers)
                 fields.append(var)
-
 
         # Must end with '}'
         if not self.current_token() or self.current_token().value != separators["RBRACE"]:
@@ -852,7 +921,9 @@ class ASTParser:
         self.next_token()  # consume '}'
         self.check_semicolon()
 
-        return ASTNode.Class(class_name, fields, methods, parent_class)
+        class_node = ASTNode.Class(class_name, fields, methods, parent_class)
+        class_node.modifiers = modifiers
+        return class_node
 
 
     def union_declaration(self):
@@ -911,48 +982,7 @@ class ASTParser:
         
         return ASTNode.Continue()
     
-    def array_declaration(self, base_type, name, user_typed=False):
-        dimensions = []
-        
-        # Parse all dimensions
-        while self.peek_token() and self.peek_token().value == separators["LBRACKET"]:
-            self.next_token()  # Consume '['
-            
-            # Check if this dimension is specified or empty
-            if self.peek_token() and self.peek_token().value == separators["RBRACKET"]:
-                # Empty dimension like arr[]
-                dimensions.append(None)
-                self.next_token()  # Consume ']'
-            else:
-                # Parse dimension expression
-                self.next_token()  # Move past '['
-                dimension_expr = self.parse_expression()
-                dimensions.append(dimension_expr)
-                
-                # Expect closing bracket
-                if not self.current_token() or self.current_token().value != separators["RBRACKET"]:
-                    self.syntax_error("Expected ']'", self.current_token())
-                
-                self.next_token()  # Consume ']'
-        
-        # Check for initialization
-        initialization = None
-        if self.current_token() and self.current_token().value == operators["ASSIGN"]:
-            self.next_token()  # Consume '='
-            
-            # Parse array initialization
-            if self.current_token() and self.current_token().value == separators["LBRACE"]:
-                initialization = self.parse_array_initialization()
-            else:
-                self.syntax_error("Expected '{' for array initialization", self.current_token())
-        
-        # Check semicolon
-        self.check_semicolon()
-        
-        return ASTNode.ArrayDeclaration(base_type, name, dimensions, initialization)
-    
-
-    def array_declaration(self, base_type, name, user_typed=False):
+    def array_declaration(self, base_type, name, user_typed=False, modifiers: LHSModifiers = None):
         dimensions = []
         
         # Parse all dimensions
@@ -1045,10 +1075,14 @@ class ASTParser:
         return ASTNode.ArrayInitialization(elements)
 
     def parse_statement(self, inside_block: bool = False) -> ASTNode:
+        # Parse lhs modifiers
+        modifiers = self.parse_lhs_modifiers()
+        if modifiers == None:
+            modifiers = LHSModifiers()
+        
         current_token = self.current_token()
         if not current_token:
             return None
-
         # Check for array element assignment by looking ahead
         if current_token._type == TokenType.LITERAL:
             # Look ahead to see if this matches pattern: identifier[...] = ...
