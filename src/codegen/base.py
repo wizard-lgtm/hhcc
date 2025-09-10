@@ -1,7 +1,7 @@
 
 from .symboltable import SymbolTable 
 from llvmlite import ir, binding
-from typing import TYPE_CHECKING, Dict, Callable, Type
+from typing import TYPE_CHECKING, Dict, Callable, NamedTuple, Type
 from astnodes import *
 from lexer import *
 
@@ -19,6 +19,9 @@ from . import inlineasm
 
 if TYPE_CHECKING:
     from compiler import Compiler  # Only for type hints
+
+
+
 
 # Utility functions for pointer level handling
 def count_pointer_level(type_str: str) -> tuple[str, int]:
@@ -91,6 +94,8 @@ class Codegen:
         self.struct_table = {}
 
         self.string_literals = []
+        self.loop_stack: List[controlflow.LoopContext] = []
+
 
         
                 # List of modules to auto-bind functions from
