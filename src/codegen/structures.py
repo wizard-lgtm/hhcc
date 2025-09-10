@@ -81,10 +81,15 @@ class EnumTable:
         self.enums.clear()
 
 class ClassTypeInfo:
-            def __init__(self, llvm_type, field_names, field_types=[], parent_type=None, node: ASTNode.Class = None):
+            def __init__(self, llvm_type, field_names, field_types=[], parent_type=None, node: ASTNode.Class = None, field_mutable: List[bool] = None):
+                if field_mutable == None:
+                    field_mutable = []
+                    for i in range(0, len(field_names)):
+                        field_mutable.append(True)
                 self.llvm_type = llvm_type
                 self.field_names = field_names
                 self.field_types = field_types
+                self.field_mutable = field_mutable
                 self.parent = parent_type
                 self.node = node
             
@@ -152,6 +157,7 @@ def handle_class(self, node: ASTNode.Class, **kwargs):
     # correctly refer to a pointer to 'struct_type'.
     field_llvm_types = []
     field_names = []
+    field_mutable = []
 
     # If there's a parent, include its field types first (inheritance).
     # Ensure inherited_fields provides LLVM types compatible with the parent's struct layout.
@@ -175,6 +181,7 @@ def handle_class(self, node: ASTNode.Class, **kwargs):
             # and potentially look up other defined class types (usually returning pointers).
             field_llvm_type = Datatypes.to_llvm_type(field.var_type, field.pointer_level)
 
+        field_mutable.append(field.is_mutable)
         field_llvm_types.append(field_llvm_type)
         field_names.append(field.name)
 
@@ -187,7 +194,7 @@ def handle_class(self, node: ASTNode.Class, **kwargs):
 
     # Create a wrapper object to store additional information about our class,
     # including the now-defined LLVM struct type.
-    class_type_info = ClassTypeInfo(struct_type, field_names, field_llvm_types, parent_type_info, node)
+    class_type_info = ClassTypeInfo(struct_type, field_names, field_llvm_types, parent_type_info, node, field_mutable=field_mutable)
 
     # Register the class type info in your type system.
     # This makes the 'Node' source type name map to the 'class_type_info' object,

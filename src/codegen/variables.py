@@ -138,7 +138,6 @@ def handle_variable_assignment(self, node: ASTNode.VariableAssignment, builder: 
 
         if struct_type_name not in self.struct_table:
             raise ValueError(f"Struct type '{struct_type_name}' not found in struct table.")
-
         struct_type_info = self.struct_table[struct_type_name]["class_type_info"]
         debug_print(f"struct_type_info.field_names: {struct_type_info.field_names}")
         debug_print(f"struct_type_info.llvm_type: {struct_type_info.llvm_type}")
@@ -157,6 +156,10 @@ def handle_variable_assignment(self, node: ASTNode.VariableAssignment, builder: 
 
         field_index = struct_type_info.field_names.index(field_name)
         field_type = struct_type_info.llvm_type.elements[field_index]
+        field_mutable = struct_type_info.field_mutable[field_index]
+
+        if not field_mutable:
+            raise ValueError(f"Field '{field_name}' is not mutable' in struct: {struct_type_name}'.")
 
         debug_print(f"field_index: {field_index}")
         debug_print(f"field_type: {field_type}")
