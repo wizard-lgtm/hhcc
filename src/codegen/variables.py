@@ -74,7 +74,8 @@ def handle_variable_declaration(self, node: ASTNode.VariableDeclaration, builder
         data_type=node.var_type,  # Keep original type string
         llvm_type=var_type,
         llvm_value=var,
-        pointer_level=pointer_level
+        pointer_level=pointer_level,
+        is_mutable=node.is_mutable
     )
     self.symbol_table.define(symbol)
     
@@ -116,6 +117,7 @@ def handle_variable_assignment(self, node: ASTNode.VariableAssignment, builder: 
     def debug_print(*args):
         if getattr(self, "codegen", None) and getattr(self.codegen, "debug", False):
             print(*args)
+
 
     # Check if this is a struct field assignment (contains a dot)
     if '.' in var_name:
@@ -176,6 +178,8 @@ def handle_variable_assignment(self, node: ASTNode.VariableAssignment, builder: 
         symbol = self.symbol_table.lookup(var_name)
         if not symbol:
             raise ValueError(f"Variable '{var_name}' not found in symbol table. It must be declared before assignment.")
+        if not symbol.is_mutable:
+            raise ValueError(f"Variable '{var_name}' is not mutable.")
 
         var_ptr = symbol.llvm_value
         var_type = var_ptr.type.pointee

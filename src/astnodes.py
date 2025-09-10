@@ -141,7 +141,8 @@ class ASTNode:
                     result += f"{prefix}└── value: {self.value.print_tree(prefix + '    ')}"
             if self.is_user_typed:
                 result += f"{prefix}└── user_typed: {self.is_user_typed}"
-            result += f"{prefix}└── pointer_level: {self.pointer_level}"
+            result += f"{prefix}└── pointer_level: {self.pointer_level}\n"
+            result += f"{prefix}└── is_mutable: {self.is_mutable}\n"
             return result
 
         def __repr__(self) -> str:

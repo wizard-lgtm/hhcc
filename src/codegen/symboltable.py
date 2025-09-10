@@ -26,7 +26,9 @@ class Symbol:
                  llvm_value: Optional[ir.Value] = None, 
                  scope_level: int = 0,
                  pointer_level: int = 0,
-                 array_dimensions: Optional[List[int]] = None):  # NEW
+                 array_dimensions: Optional[List[int]] = None,
+                 is_mutable: bool = True
+                 ):  # NEW
 
         self.name = name
         self.kind = kind
@@ -37,6 +39,7 @@ class Symbol:
         self.scope_level = scope_level
         self.pointer_level = pointer_level  # 0 = not a pointer, 1 = pointer, 2 = double pointer, etc.
         self.array_dimensions = array_dimensions or []  # NEW
+        self.is_mutable = is_mutable 
         # Additional data for specific symbol kinds
 
         self.extra_data: Dict[str, Any] = {}
@@ -52,7 +55,7 @@ class Symbol:
     def __repr__(self) -> str:
         pointer_str = f", ptr_level={self.pointer_level}" if self.pointer_level > 0 else ""
         array_str = f", dims={self.array_dimensions}" if self.is_array else ""
-        return f"Symbol(name='{self.name}', kind={self.kind}, type={self.data_type}, scope={self.scope_level}{pointer_str}{array_str})"
+        return f"Symbol(name='{self.name}', kind={self.kind}, type={self.data_type}, is_mutable={self.is_mutable} scope={self.scope_level}{pointer_str}{array_str})"
 
 
 class Scope:
@@ -217,10 +220,10 @@ class SymbolTable:
 # Helper functions for creating common types of symbols
 def create_variable_symbol(name: str, ast_node: Any, data_type: Any, 
                           llvm_type: Any = None, llvm_value: Optional[ir.Value] = None, 
-                          scope_level: int = 0, pointer_level: int = 0) -> Symbol:
+                          scope_level: int = 0, pointer_level: int = 0, is_mutable: bool = True) -> Symbol:
     """Create a variable symbol."""
     return Symbol(name, SymbolKind.VARIABLE, ast_node, data_type, 
-                 llvm_type, llvm_value, scope_level, pointer_level)
+                 llvm_type, llvm_value, scope_level, pointer_level, is_mutable=is_mutable)
 
 
 def create_function_symbol(name: str, ast_node: Any, return_type: Any, 

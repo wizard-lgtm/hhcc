@@ -104,12 +104,14 @@ class ASTParser:
                 # Not a keyword, stop parsing modifiers
                 break
 
+        return modifiers
+
 
     def variable_declaration(self, user_typed=False, modifiers: LHSModifiers = None):
         """Enhanced variable declaration with LHS modifiers support"""
         if modifiers is None:
             modifiers = LHSModifiers()
-            
+
         var_type = self.current_token()
         self.next_token()  # Consume the type token
         list_of_declarations = []
@@ -1122,7 +1124,7 @@ class ASTParser:
                     paren_token and paren_token.value == separators["LPAREN"]):
                     return self.function_declaration()
                 else:
-                    return self.variable_declaration()
+                    return self.variable_declaration(modifiers=modifiers)
             
             # Add inline assembly support
             if current_token.value == keywords.get("ASM", "asm"):
@@ -1166,7 +1168,7 @@ class ASTParser:
             
             # SECOND: check for user-defined type variable declarations
             elif current_token.value in Datatypes.user_defined_types:
-                return self.variable_declaration(True)
+                return self.variable_declaration(True, modifiers=modifiers)
             
             # THIRD: check for regular variable assignment
             elif next_token and next_token._type == TokenType.OPERATOR and next_token.value in assignment_operators.values(): 
