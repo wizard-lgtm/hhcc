@@ -87,6 +87,7 @@ class Scope:
         self.name = name
 
     def define(self, symbol: Symbol) -> None:
+        
         if symbol.name in self.symbols and symbol.kind != SymbolKind.PARAMETER:
             raise ValueError(f"Symbol '{symbol.name}' already defined in scope {self.level}")
         self.symbols[symbol.name] = symbol
@@ -116,18 +117,22 @@ class SymbolTable:
         return self.scopes[self.current_scope_level]
 
     # --- New + Old API unified ---
+
     def enter_scope(self, scope_type: 'ScopeType' = ScopeType.BLOCK, name: str = None) -> int:
         """Enter a new scope (compatible with old API)."""
         self.current_scope_level += 1
         if len(self.scopes) <= self.current_scope_level:
+            # Create a new scope
             self.scopes.append(Scope(self.current_scope_level, scope_type, name))
         else:
+            # Reuse existing scope but CLEAR its symbols first
             scope = self.scopes[self.current_scope_level]
             scope.scope_type = scope_type
             scope.name = name
+            scope.symbols.clear()  # <-- THIS WAS MISSING!
+            
         print(f"SCOPE: Entering {scope_type} scope '{name}' at level {self.current_scope_level}")
         return self.current_scope_level
-
     def exit_scope(self) -> int:
         """Exit current scope (compatible with old API)."""
         if self.current_scope_level > 0:
@@ -205,6 +210,29 @@ class SymbolTable:
 
     def __getitem__(self, name: str) -> Optional[Symbol]:
         return self.lookup(name)
+
+    @property
+    def current_level(self) -> int:
+        """Backwards compatibility for old code."""
+        return self.current_scope_level
+    
+    @current_level.setter
+    def current_level(self, value: int):
+        self.current_scope_level = value
+
+    def print_tree(self):
+        """Print the symbol table in a tree-like format for visualization."""
+        def _print_scope(scope: Scope, indent: int = 0):
+            indent_str = "  " * indent
+            print(f"{indent_str}- Scope Level {scope.level} ({scope.scope_type.name}, name='{scope.name}')")
+            for symbol in scope.symbols.values():
+                ptr = "*" * symbol.pointer_level
+                dims = f"[{', '.join(map(str, symbol.array_dimensions))}]" if symbol.is_array else ""
+                print(f"{indent_str}    - {symbol.name}: {symbol.data_type}{ptr}{dims} (kind={symbol.kind.name}, mutable={symbol.is_mutable})")
+        
+        print("Symbol Table Tree:")
+        for scope in self.scopes:
+            _print_scope(scope)
 
 
 

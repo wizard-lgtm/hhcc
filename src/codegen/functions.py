@@ -3,43 +3,33 @@ from llvmlite import ir, binding
 from typing import TYPE_CHECKING, Dict, Callable, Type
 from astnodes import *
 from lexer import *
-from .symboltable import Symbol, SymbolKind, create_function_symbol
+from .symboltable import ScopeType, Symbol, SymbolKind, create_function_symbol
 
 if (TYPE_CHECKING):
     from .base import Codegen
 
 def handle_function_definition(self: "Codegen", node: ASTNode.FunctionDefinition, builder: Optional[ir.IRBuilder] = None, **kwargs):
-    """Handle function definition with the new symbol table."""
+    """Handle function definition with improved scope management."""
     name = node.name
     return_type = Datatypes.to_llvm_type(node.return_type)
-
     node_params: List[ASTNode.VariableDeclaration] = node.parameters
     llvm_params = []
     param_types = []
-
+    
     # Parse args
     for param in node_params:
-
         base_type = Datatypes.to_llvm_type(param.var_type)
-
-
-        # Step 2: apply pointer levels
         llvm_type = base_type
         for _ in range(param.pointer_level):
             llvm_type = llvm_type.as_pointer()
-
         llvm_params.append(llvm_type)
         param_types.append(param.var_type + "*" * param.pointer_level)
-
-            
-        
-
     
     # Create the function type and function
     func_type = ir.FunctionType(return_type, llvm_params)
     func = ir.Function(self.module, func_type, name)
     
-    # Create and store the function symbol
+    # Create and store the function symbol in GLOBAL scope
     func_symbol = create_function_symbol(
         name=name,
         ast_node=node,
@@ -47,33 +37,29 @@ def handle_function_definition(self: "Codegen", node: ASTNode.FunctionDefinition
         parameter_types=param_types,
         llvm_function=func
     )
-    self.symbol_table.define(func_symbol)
+    self.symbol_table.define(func_symbol)  # This goes in current scope (should be global)
     
     # Also store in function map for backward compatibility
     self.function_map[name] = func
     
     # Handle function body if we have one
     if node.body:
-        # Create a new scope for the function body
-        self.symbol_table.enter_scope()
+        # Enter FUNCTION scope (not just a generic scope)
+        self.symbol_table.enter_scope(ScopeType.FUNCTION, name)
         
         # Create the entry block and builder
         entry_block = func.append_basic_block("entry")
         local_builder = ir.IRBuilder(entry_block)
         
-        # Define function parameters in the symbol table
+        # Define function parameters in the FUNCTION scope
         for i, (param, llvm_param) in enumerate(zip(node_params, func.args)):
-
-            # If this is self (pointer), or immutable, just use the SSA value
             if param.name == "self" or not param.is_mutable:
                 llvm_value = llvm_param
             else:
-                # Only allocate space for mutable non-pointer parameters
                 param_ptr = local_builder.alloca(llvm_param.type, name=f"{param.name}_param")
                 local_builder.store(llvm_param, param_ptr)
                 llvm_value = param_ptr
             
-            # Add parameter to symbol table
             param_symbol = Symbol(
                 name=param.name,
                 kind=SymbolKind.PARAMETER,
@@ -81,7 +67,7 @@ def handle_function_definition(self: "Codegen", node: ASTNode.FunctionDefinition
                 data_type=param.var_type,
                 llvm_type=llvm_param.type,
                 llvm_value=llvm_value,
-                scope_level=self.symbol_table.current_scope_level
+                scope_level=self.symbol_table.current_level
             )
             self.symbol_table.define(param_symbol)
         
@@ -94,14 +80,12 @@ def handle_function_definition(self: "Codegen", node: ASTNode.FunctionDefinition
             if return_type == ir.VoidType():
                 local_builder.ret_void()
             else:
-                # For non-void functions, add a default return value
                 local_builder.ret(ir.Constant(return_type, 0))
         
-        # Exit the function scope
+        # Exit the FUNCTION scope
         self.symbol_table.exit_scope()
     
     return func
-
 
 # Replace your handle_function_call function in src/codegen/functions.py with this version
 
