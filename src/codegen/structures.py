@@ -80,61 +80,143 @@ class EnumTable:
         """Clear all enums"""
         self.enums.clear()
 
+class ClassFieldInfo:
+    """Enhanced field information for class fields"""
+    
+    def __init__(self, name: str, field_type: str, llvm_type, ast_node: 'ASTNode.VariableDeclaration', 
+                 index: int, is_mutable: bool = True, default_value: Any = None, 
+                 default_llvm_value = None, pointer_level: int = 0):
+        self.name = name                        # Field name
+        self.field_type = field_type           # Source type string (e.g., "U8", "U8*")
+        self.llvm_type = llvm_type             # LLVM type
+        self.ast_node = ast_node               # Original AST node
+        self.index = index                     # Index in struct
+        self.is_mutable = is_mutable           # Whether field can be modified
+        self.default_value = default_value     # Raw default value from source
+        self.default_llvm_value = default_llvm_value  # Compiled LLVM constant
+        self.pointer_level = pointer_level     # Number of pointer levels
+    
+    def has_default_value(self):
+        """Check if this field has a default value"""
+        return self.default_value is not None
+    
+    def get_default_llvm_value(self):
+        """Get the LLVM constant for the default value"""
+        return self.default_llvm_value
+    
+    def __repr__(self):
+        return f"<ClassFieldInfo: {self.name}:{self.field_type}, mutable={self.is_mutable}, default={self.default_value}>"
+
 class ClassTypeInfo:
-            def __init__(self, llvm_type, field_names, field_types=[], parent_type=None, node: ASTNode.Class = None, field_mutable: List[bool] = None):
-                if field_mutable == None:
-                    field_mutable = []
-                    for i in range(0, len(field_names)):
-                        field_mutable.append(True)
-                self.llvm_type = llvm_type
-                self.field_names = field_names
-                self.field_types = field_types
-                self.field_mutable = field_mutable
-                self.parent = parent_type
-                self.node = node
-            
-            def get_llvm_type(self):
-                return self.llvm_type
-            
-            def get_fields(self):
-                return [(name, self.llvm_type.elements[i]) for i, name in enumerate(self.field_names)]
-            
-            def get_field_index(self, field_name):
-                try:
-                    return self.field_names.index(field_name)
-                except ValueError:
-                    if self.parent:
-                        # Check if the field exists in the parent class
-                        for i, (name, _) in enumerate(self.parent.get_fields()):
-                            if name == field_name:
-                                return i
-                    raise Exception(f"Unknown field '{field_name}' in class '{self.node}'")
+    """Enhanced class type information with better field handling"""
 
-            def get_field_ptr(self, struct_ptr, field_name: str, builder: ir.IRBuilder):
-                """
-                Returns an LLVM pointer to the field inside the struct.
-                
-                struct_ptr: %struct.ClassName* (LLVM pointer to struct)
-                class_info: ClassTypeInfo instance for the class
-                field_name: str, name of the field
-                builder: IRBuilder to emit instructions
-                """
-                # Get the field index
-                field_index = self.get_field_index(field_name)
-                
-                # LLVM GEP: first 0 for the struct itself, then field index
-                ptr = builder.gep(
-                    struct_ptr,
-                    [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), field_index)],
-                    inbounds=True
-                )
-                
-                return ptr
+    def __init__(self, name: str, llvm_type, parent_type=None, node: 'ASTNode.Class' = None):
+        self.name = name                       # Class name
+        self.llvm_type = llvm_type            # LLVM struct type
+        self.parent = parent_type             # Parent class info
+        self.node = node                      # Original AST node
+        self.fields = {}                      # Maps field names to ClassFieldInfo
+        self.field_order = []                 # Ordered list of field names
+        self.methods = {}                     # Maps method names to method info
+        self._next_field_index = 0            # Track field indices
 
-            def __repr__(self):
-                return f"<ClassTypeInfo: fields={self.field_names}, parent={self.parent}, llvm_type={self.llvm_type}>"
+        # If we have a parent, inherit its fields first
+        if self.parent:
+            self._inherit_parent_fields()
+
+    # -----------------------------
+    # 🔙 Backward compatibility
+    # -----------------------------
+    @property
+    def field_names(self):
+        """Old API compatibility: returns list of field names"""
+        return self.field_order
+
+    @property
+    def field_types(self):
+        """Old API compatibility: returns list of LLVM types"""
+        return [self.fields[name].llvm_type for name in self.field_order]
+
+    @property
+    def field_mutable(self):
+        """Old API compatibility: returns list of mutability flags"""
+        return [self.fields[name].is_mutable for name in self.field_order]
+
+    @property
+    def field_variables(self):
+        """Old API compatibility: return underlying AST nodes for fields"""
+        return [self.fields[name].ast_node for name in self.field_order]
+
+    # -----------------------------
+    # Existing methods
+    # -----------------------------
+    def _inherit_parent_fields(self):
+        """Inherit fields from parent class"""
+        if not self.parent:
+            return
+
+        for field_name in self.parent.field_order:
+            parent_field = self.parent.fields[field_name]
+            inherited_field = ClassFieldInfo(
+                name=parent_field.name,
+                field_type=parent_field.field_type,
+                llvm_type=parent_field.llvm_type,
+                ast_node=parent_field.ast_node,
+                index=self._next_field_index,
+                is_mutable=parent_field.is_mutable,
+                default_value=parent_field.default_value,
+                default_llvm_value=parent_field.default_llvm_value,
+                pointer_level=parent_field.pointer_level,
+            )
+            self.fields[field_name] = inherited_field
+            self.field_order.append(field_name)
+            self._next_field_index += 1
+
+    def add_field(self, field_info: ClassFieldInfo):
+        field_info.index = self._next_field_index
+        self.fields[field_info.name] = field_info
+        self.field_order.append(field_info.name)
+        self._next_field_index += 1
+
+    def get_field(self, field_name: str) -> Optional[ClassFieldInfo]:
+        return self.fields.get(field_name)
+
+    def has_field(self, field_name: str) -> bool:
+        return field_name in self.fields
+
+    def get_field_index(self, field_name: str) -> int:
+        field = self.fields.get(field_name)
+        if field:
+            return field.index
+        raise Exception(f"Unknown field '{field_name}' in class '{self.name}'")
+
+    def get_field_ptr(self, struct_ptr, field_name: str, builder: ir.IRBuilder):
+        field_index = self.get_field_index(field_name)
+        return builder.gep(
+            struct_ptr,
+            [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), field_index)],
+            inbounds=True,
+        )
+
+    def get_llvm_type(self):
+        return self.llvm_type
+
+    def get_fields_with_defaults(self):
+        return [field for field in self.fields.values() if field.has_default_value()]
+
+    def get_all_field_types(self):
+        return [self.fields[name].llvm_type for name in self.field_order]
+
+    def __repr__(self):
+        return f"<ClassTypeInfo: {self.name}, fields={list(self.fields.keys())}, parent={self.parent.name if self.parent else None}>"
+
 
 def handle_class(self, node: ASTNode.Class, **kwargs):
+    """Enhanced class handler with proper field value handling"""
+    
+    if self.compiler.debug:
+        print(f"Processing class: {node.name}")
+    
     # Get the parent class info if any
     parent_type_info = None
     if node.parent:
@@ -142,109 +224,216 @@ def handle_class(self, node: ASTNode.Class, **kwargs):
         if not parent_type_info:
             raise Exception(f"Unknown parent class '{node.parent}'")
 
-    # --- START: Handling Identified LLVM Struct Types ---
-
-    # 1. Create the identified (named) struct type in the LLVM context.
-    # This type is initially 'opaque' (its contents are not yet defined).
-    # We use a standard naming convention like '%struct.ClassName'.
+    # Create the identified struct type
     llvm_struct_name = f"%struct.{node.name}"
-    # Use global_context to get the type by name. If it doesn't exist, it's created.
     struct_type = ir.global_context.get_identified_type(llvm_struct_name)
 
-    # 2. Collect the LLVM types for each field in the class.
-    # We need to do this *after* creating the identified type so that
-    # self-referential fields (like 'Node next' in a Node class) can
-    # correctly refer to a pointer to 'struct_type'.
+    # Create the enhanced class type info
+    class_type_info = ClassTypeInfo(
+        name=node.name,
+        llvm_type=struct_type,
+        parent_type=parent_type_info,
+        node=node
+    )
+
+    # Process each field defined in this class
     field_llvm_types = []
-    field_names = []
-    field_mutable = []
+    
+    # First, collect inherited field types if any
+    if parent_type_info:
+        field_llvm_types.extend(parent_type_info.get_all_field_types())
 
-    # If there's a parent, include its field types first (inheritance).
-    # Ensure inherited_fields provides LLVM types compatible with the parent's struct layout.
-    if parent_type_info and hasattr(parent_type_info, 'get_fields'):
-        inherited_fields = parent_type_info.get_fields() # Assuming this returns [(name, llvm_type)]
-        for field_name, field_type in inherited_fields:
-            field_names.append(field_name)
-            field_llvm_types.append(field_type)
-
-    # Process each field defined directly in this class.
-    for field in node.fields:
-        # Convert the source type name to its corresponding LLVM type.
-        # Special handling is needed here for fields that are pointers to *this* class.
-        if field.var_type == node.name:
-            # If the field type is the same as the class being defined,
-            # it should be a pointer to this identified struct type.
+    # Process each field defined directly in this class
+    for field_ast in node.fields:
+        if self.compiler.debug:
+            print(f"Processing field: {field_ast.name} of type {field_ast.var_type}")
+        
+        # Determine the LLVM type for this field
+        if field_ast.var_type == node.name:
+            # Self-referential field (pointer to same class)
             field_llvm_type = struct_type.as_pointer()
         else:
-            # For other types, use the standard conversion.
-            # Datatypes.to_llvm_type should handle base types (U8, etc.)
-            # and potentially look up other defined class types (usually returning pointers).
-            field_llvm_type = Datatypes.to_llvm_type(field.var_type, field.pointer_level)
+            # Regular field type
+            field_llvm_type = Datatypes.to_llvm_type(field_ast.var_type, field_ast.pointer_level)
 
-        field_mutable.append(field.is_mutable)
         field_llvm_types.append(field_llvm_type)
-        field_names.append(field.name)
+        
+        # Process default value if present
+        default_llvm_value = None
+        if field_ast.value:
+            if self.compiler.debug:
+                print(f"Processing default value for field {field_ast.name}")
+            
+            # Evaluate the default value expression to get LLVM constant
+            try:
+                # Use a temporary builder or evaluate as constant
+                default_llvm_value = self._evaluate_field_default_value(field_ast.value, field_llvm_type)
+            except Exception as e:
+                if self.compiler.debug:
+                    print(f"Warning: Could not evaluate default value for {field_ast.name}: {e}")
+        
+        # Create field info
+        field_info = ClassFieldInfo(
+            name=field_ast.name,
+            field_type=field_ast.var_type,
+            llvm_type=field_llvm_type,
+            ast_node=field_ast,
+            index=0,  # Will be set by add_field
+            is_mutable=field_ast.is_mutable,
+            default_value=field_ast.value,
+            default_llvm_value=default_llvm_value,
+            pointer_level=field_ast.pointer_level
+        )
+        
+        # Add field to class type info
+        class_type_info.add_field(field_info)
 
-    # 3. Set the body of the identified struct type.
-    # This defines the actual layout (the sequence of field types) for the struct.
-    # This step completes the definition of the 'opaque' type created earlier.
-    struct_type.set_body(*field_llvm_types) # Use * to unpack the list of types
+    # Set the body of the struct type
+    struct_type.set_body(*field_llvm_types)
 
-    # --- END: Handling Identified LLVM Struct Types ---
-
-    # Create a wrapper object to store additional information about our class,
-    # including the now-defined LLVM struct type.
-    class_type_info = ClassTypeInfo(struct_type, field_names, field_llvm_types, parent_type_info, node, field_mutable=field_mutable)
-
-    # Register the class type info in your type system.
-    # This makes the 'Node' source type name map to the 'class_type_info' object,
-    # which contains the LLVM 'struct_type'.
+    # Register the class type info in the type system
     Datatypes.add_type(node.name, class_type_info)
 
-    # Store the struct info in your internal table (if needed).
-    # Ensure you are storing the class name as the key.
-    self.struct_table[node.name] = {'name': node.name, 'class_type_info': class_type_info}
+    # Store in struct table
+    self.struct_table[node.name] = {
+        'name': node.name, 
+        'class_type_info': class_type_info
+    }
 
-    # --- NEW: Process class methods ---
-    # Register each method as a function with the naming convention ClassName_methodName
+    # Process class methods (unchanged)
     for method in node.methods:
-        # Create the mangled method name
         mangled_name = f"{node.name}_{method.name}"
-        
-        # Create a new function definition node with the mangled name
-        # The first parameter should be a pointer to the class instance (self)
         
         # Create self parameter
         self_param = ASTNode.VariableDeclaration(
             var_type=node.name,
             name="self",
-            pointer_level=1,  # self is always a pointer to the class
+            pointer_level=1,
             is_user_typed=True
         )
         
-
         # Combine self parameter with existing parameters
         if not method.parameters or method.parameters[0].name != "self":
             all_params = [self_param] + method.parameters
         else:
             all_params = method.parameters
         
-        # Create a new function definition with the mangled name and updated parameters
+        # Create mangled method
         mangled_method = ASTNode.FunctionDefinition(
             name=mangled_name,
             return_type=method.return_type,
             parameters=all_params,
             body=method.body
         )
-        # Process the method as a regular function using the existing handler
+        
         from .functions import handle_function_definition
         handle_function_definition(self, mangled_method, **kwargs)
         
         if self.compiler.debug:
             print(f"Registered method {method.name} as function {mangled_name}")
 
-    # This function typically doesn't return an LLVM value, just defines the type.
+    if self.compiler.debug:
+        print(f"Class {node.name} processed successfully")
+        print(f"Fields: {[f.name for f in class_type_info.fields.values()]}")
+        fields_with_defaults = class_type_info.get_fields_with_defaults()
+        if fields_with_defaults:
+            print(f"Fields with defaults: {[f.name for f in fields_with_defaults]}")
+
     return None
+
+def _evaluate_field_default_value(self, value_expr, target_llvm_type):
+    """Evaluate a field's default value expression to an LLVM constant"""
+    
+    if value_expr.node_type == NodeType.LITERAL:
+        # Handle literal values
+        if isinstance(value_expr.value, str):
+            # String literal
+            if value_expr.value.startswith('"') and value_expr.value.endswith('"'):
+                # Remove quotes and create string constant
+                string_val = value_expr.value[1:-1]  # Remove quotes
+                return self._create_string_constant_for_field(string_val, target_llvm_type)
+            else:
+                # Try to parse as number
+                try:
+                    if '.' in value_expr.value:
+                        # Float
+                        float_val = float(value_expr.value)
+                        return ir.Constant(target_llvm_type, float_val)
+                    else:
+                        # Integer
+                        int_val = int(value_expr.value)
+                        return ir.Constant(target_llvm_type, int_val)
+                except ValueError:
+                    # If can't parse as number, treat as string
+                    return self._create_string_constant_for_field(value_expr.value, target_llvm_type)
+        else:
+            # Direct numeric value
+            return ir.Constant(target_llvm_type, value_expr.value)
+    
+    elif value_expr.node_type == NodeType.REFERENCE:
+        # Handle references to other constants/enums
+        # This would need to be implemented based on your symbol table
+        pass
+    
+    # For complex expressions, you might need to evaluate them at compile time
+    # or defer initialization to runtime
+    return None
+
+def _create_string_constant_for_field(self, string_value, target_llvm_type):
+    """Create a string constant for field initialization"""
+    
+    if isinstance(target_llvm_type, ir.PointerType) and \
+       isinstance(target_llvm_type.pointee, ir.IntType) and \
+       target_llvm_type.pointee.width == 8:
+        
+        # This is a char* type, create a global string constant
+        # Note: This is a simplified version, you might need to adapt it
+        # to your existing string constant creation method
+        
+        string_type = ir.ArrayType(ir.IntType(8), len(string_value) + 1)  # +1 for null terminator
+        string_data = bytearray(string_value.encode('utf-8') + b'\0')
+        
+        # Create global constant
+        global_string = ir.GlobalVariable(
+            self.module, 
+            string_type, 
+            name=f".str.field.{len(string_value)}"
+        )
+        global_string.initializer = ir.Constant(string_type, string_data)
+        global_string.global_constant = True
+        global_string.linkage = 'private'
+        
+        # Return pointer to the first element
+        return global_string.gep([ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)])
+    
+    return None
+
+def create_class_instance(self, class_name: str, builder: ir.IRBuilder, initialize_defaults: bool = True):
+    """Create a new instance of a class with optional default value initialization"""
+    
+    class_info = Datatypes.get_type(class_name)
+    if not isinstance(class_info, ClassTypeInfo):
+        raise ValueError(f"'{class_name}' is not a valid class type")
+    
+    # Allocate memory for the class instance
+    instance_ptr = builder.alloca(class_info.llvm_type, name=f"{class_name.lower()}_instance")
+    
+    if initialize_defaults:
+        # Initialize fields that have default values
+        fields_with_defaults = class_info.get_fields_with_defaults()
+        
+        for field in fields_with_defaults:
+            if field.default_llvm_value:
+                # Get pointer to field
+                field_ptr = class_info.get_field_ptr(instance_ptr, field.name, builder)
+                
+                # Store the default value
+                builder.store(field.default_llvm_value, field_ptr)
+                
+                if self.compiler.debug:
+                    print(f"Initialized field {field.name} with default value")
+    
+    return instance_ptr
 
 def handle_class_method_call(self, node, builder: ir.IRBuilder, **kwargs):
     """Handle class method calls - automatically injects self parameter."""
