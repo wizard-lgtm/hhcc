@@ -106,10 +106,11 @@ class SymbolTable:
     """
     Symbol table with backwards compatibility for old API (ImprovedSymbolTable).
     """
-    def __init__(self):
+    def __init__(self, debug=False):
         self.scopes: List[Scope] = []
         self.current_scope_level = -1
         # Start with global scope
+        self.debug = debug
         self.enter_scope(ScopeType.GLOBAL, "global")
 
     @property
@@ -131,20 +132,23 @@ class SymbolTable:
             scope.name = name
             scope.symbols.clear()  # <-- THIS WAS MISSING!
             
-        print(f"SCOPE: Entering {scope_type} scope '{name}' at level {self.current_scope_level}")
+        if self.debug:
+            print(f"SCOPE: Entering {scope_type} scope '{name}' at level {self.current_scope_level}")
         return self.current_scope_level
     def exit_scope(self) -> int:
         """Exit current scope (compatible with old API)."""
         if self.current_scope_level > 0:
             old_scope = self.current_scope
-            print(f"SCOPE: Exiting {old_scope.scope_type} scope '{old_scope.name}' from level {self.current_scope_level}")
+            if self.debug:
+                print(f"SCOPE: Exiting {old_scope.scope_type} scope '{old_scope.name}' from level {self.current_scope_level}")
             self.current_scope_level -= 1
         return self.current_scope_level
 
     def define(self, symbol: Symbol) -> Symbol:
         symbol.scope_level = self.current_scope_level
         self.current_scope.define(symbol)
-        print(f"SCOPE: Defined '{symbol.name}' in {self.current_scope.scope_type} scope '{self.current_scope.name}' (level {self.current_scope.level})")
+        if self.debug:
+            print(f"SCOPE: Defined '{symbol.name}' in {self.current_scope.scope_type} scope '{self.current_scope.name}' (level {self.current_scope.level})")
         return symbol
 
     def lookup(self, name: str, current_scope_only: bool = False) -> Optional[Symbol]:
@@ -153,9 +157,11 @@ class SymbolTable:
         for level in range(self.current_scope_level, -1, -1):
             symbol = self.scopes[level].lookup(name)
             if symbol:
-                print(f"SCOPE: Found '{name}' in {self.scopes[level].scope_type} scope '{self.scopes[level].name}' (level {level})")
+                if self.debug:
+                    print(f"SCOPE: Found '{name}' in {self.scopes[level].scope_type} scope '{self.scopes[level].name}' (level {level})")
                 return symbol
-        print(f"SCOPE: Symbol '{name}' not found in any scope")
+        if self.debug:
+            print(f"SCOPE: Symbol '{name}' not found in any scope")
         return None
 
     def get_function_scope(self) -> Optional[Scope]:
