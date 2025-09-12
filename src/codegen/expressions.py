@@ -10,60 +10,52 @@ if TYPE_CHECKING:
 def handle_binary_expression(self: "Codegen", node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
     
     is_debug = self.compiler.debug
-    # Parse the operator
     operator = node.op
 
-    # Determine type characteristics
+    # Check if this is a comparison operator
+    comparison_ops = [
+        operators["EQUAL"], operators["NOT_EQUAL"], 
+        operators["LESS_THAN"], operators["LESS_OR_EQUAL"],
+        operators["GREATER_THAN"], operators["GREATER_OR_EQUAL"]
+    ]
+    
+    is_comparison = operator in comparison_ops
+    
+    # For comparison operations, don't force operands to boolean type
+    # Let them evaluate in their natural types
+    if is_comparison:
+        # Evaluate operands without forcing type - let them use their natural types
+        left = self.handle_expression(node.left, builder, None)  # Let left determine its own type
+        right = self.handle_expression(node.right, builder, left.type)  # Match right to left's type
+    else:
+        # For non-comparison operations, use the provided var_type
+        left = self.handle_expression(node.left, builder, var_type)
+        right = self.handle_expression(node.right, builder, var_type)
+    
+    # Determine type characteristics based on the operands' actual types
     is_signed = False
     is_float = False
     is_integer = False
     
-    # Try to get type information in different ways
-    if hasattr(node, "var_type") and node.var_type:
-        is_signed = Datatypes.is_signed_type(node.var_type)
-        is_float = Datatypes.is_float_type(node.var_type)
-        is_integer = Datatypes.is_integer_type(node.var_type)
+    # Use the actual operand types to determine characteristics
+    operand_type = left.type
+    
+    if isinstance(operand_type, ir.IntType):
+        is_signed = self.type_signedness.get(operand_type, False)
+        is_integer = True
         if is_debug:
-            print(f"DEBUG - From node var_type: is_signed={is_signed}, is_float={is_float}, is_integer={is_integer}, type={node.var_type}")
-    elif hasattr(var_type, "datatype_name") and var_type.datatype_name:
-        is_signed = Datatypes.is_signed_type(var_type.datatype_name)
-        is_float = Datatypes.is_float_type(var_type.datatype_name)
-        is_integer = Datatypes.is_integer_type(var_type.datatype_name)
+            print(f"DEBUG - Operand type: {operand_type}, is_signed={is_signed}")
+    elif isinstance(operand_type, (ir.FloatType, ir.DoubleType)):
+        is_float = True
+        is_integer = False
         if is_debug:
-            print(f"DEBUG - From var_type datatype_name: is_signed={is_signed}, is_float={is_float}, is_integer={is_integer}, type={var_type.datatype_name}")
-    else:
-        # Default values based on LLVM type if we can't determine from name
-        if isinstance(var_type, ir.IntType):
-            # Check if this type is in the signed types list
-            signed_types = [
-                self.type_map[t] for t in [Datatypes.I8, Datatypes.I16, Datatypes.I32, Datatypes.I64]
-            ]
-            is_signed = self.type_signedness.get(var_type, False)
-            is_integer = True
-            if is_debug:
-                print(f"DEBUG - From LLVM IntType: is_signed={is_signed}, width={var_type.width}, type={var_type}")
-        elif isinstance(var_type, (ir.FloatType, ir.DoubleType)):
-            is_float = True
-            is_integer = False
-            if is_debug:
-                print(f"DEBUG - From LLVM FloatType: is_float={is_float}, type={var_type}")
-        else:
-            # If we can't determine, default to unsigned integer
-            is_signed = False
-            is_integer = True
-            is_float = False
-            if is_debug:
-                print(f"DEBUG - Using defaults: is_signed={is_signed}, is_float={is_float}, is_integer={is_integer}, type={var_type}")
-
-    # evaluate left and right expressions
-    left = self.handle_expression(node.left, builder, var_type)
-    right = self.handle_expression(node.right, builder, var_type)
+            print(f"DEBUG - Float operand type: {operand_type}")
     
     # Debug the operation
     if is_debug:
         print(f"DEBUG - Operation: {operator}, Left type: {left.type}, Right type: {right.type}")
     
-    # Make sure both operands have the same type
+    # Make sure both operands have the same type (only for non-comparison or after type inference)
     if left.type != right.type:
         if is_debug:
             print(f"DEBUG - Type mismatch: converting right operand from {right.type} to {left.type}")
@@ -73,7 +65,6 @@ def handle_binary_expression(self: "Codegen", node: ASTNode.ExpressionNode, buil
             if right.type.width == 1:  # Converting from boolean (i1)
                 right = builder.zext(right, left.type, name="bool_to_int")
             else:
-                # Handle other integer size conversions
                 if is_signed:
                     right = builder.sext(right, left.type, name="sext")
                 else:
@@ -82,25 +73,12 @@ def handle_binary_expression(self: "Codegen", node: ASTNode.ExpressionNode, buil
             if left.type.width == 1:  # Converting from boolean (i1)
                 left = builder.zext(left, right.type, name="bool_to_int")
             else:
-                # Handle other integer size conversions
                 if is_signed:
                     left = builder.sext(left, right.type, name="sext")
                 else:
                     left = builder.zext(left, right.type, name="zext") 
-            
-        # Check if we need to handle float conversions
-        if isinstance(left.type, ir.IntType) and isinstance(right.type, (ir.FloatType, ir.DoubleType)):
-            if is_signed:
-                left = builder.sitofp(left, right.type, name="int_to_float")
-            else:
-                left = builder.uitofp(left, right.type, name="uint_to_float")
-        elif isinstance(right.type, ir.IntType) and isinstance(left.type, (ir.FloatType, ir.DoubleType)):
-            if is_signed:
-                right = builder.sitofp(right, left.type, name="int_to_float")
-            else:
-                right = builder.uitofp(right, left.type, name="uint_to_float")
     
-    # After conversion, re-check what types we're working with
+    # Re-determine type characteristics after conversion
     is_float = isinstance(left.type, (ir.FloatType, ir.DoubleType))
     is_integer = isinstance(left.type, ir.IntType)
     
@@ -112,37 +90,113 @@ def handle_binary_expression(self: "Codegen", node: ASTNode.ExpressionNode, buil
     elif operator == operators["MULTIPLY"]:
         return builder.mul(left, right, name="mul")
     elif operator == operators["DIVIDE"]:
-        # For integer division
         if is_integer:
             if is_signed:
-                if is_debug:
-                    print(f"DEBUG - Using SIGNED integer division (sdiv)")
                 return builder.sdiv(left, right, name="sdiv")
             else:
-                if is_debug:
-                    print(f"DEBUG - Using UNSIGNED integer division (udiv)")
                 return builder.udiv(left, right, name="udiv")
-        # For floating point division
         else:
-            if is_debug:
-                print(f"DEBUG - Using floating point division (fdiv)")
             return builder.fdiv(left, right, name="fdiv")
     elif operator == operators["MODULO"]:
-        # For integer modulo
         if is_integer:
             if is_signed:
-                if is_debug:
-                    print(f"DEBUG - Using SIGNED integer remainder (srem)")
                 return builder.srem(left, right, name="srem")
             else:
-                if is_debug:
-                    print(f"DEBUG - Using UNSIGNED integer remainder (urem)")
                 return builder.urem(left, right, name="urem")
-        # For floating point modulo
         else:
-            if is_debug:
-                print(f"DEBUG - Using floating point remainder (frem)")
             return builder.frem(left, right, name="frem")
+    
+    # Comparison operators - these return i1 (boolean)
+    elif operator == operators["EQUAL"]:
+        if is_integer:
+            if is_signed:
+                return builder.icmp_signed('==', left, right, name="seq")
+            else:
+                return builder.icmp_unsigned('==', left, right, name="ueq")
+        else:
+            return builder.fcmp_ordered('==', left, right, name="feq")
+    elif operator == operators["NOT_EQUAL"]:
+        if is_integer:
+            if is_signed:
+                return builder.icmp_signed('!=', left, right, name="sne") 
+            else:
+                return builder.icmp_unsigned('!=', left, right, name="une")
+        else:
+            return builder.fcmp_ordered('!=', left, right, name="fne")
+    elif operator == operators["LESS_THAN"]:
+        if is_integer:
+            if is_signed:
+                return builder.icmp_signed('<', left, right, name="slt")
+            else:
+                return builder.icmp_unsigned('<', left, right, name="ult")
+        else:
+            return builder.fcmp_ordered('<', left, right, name="flt")
+    elif operator == operators["LESS_OR_EQUAL"]:
+        if is_integer:
+            if is_signed:
+                return builder.icmp_signed('<=', left, right, name="sle")
+            else:
+                return builder.icmp_unsigned('<=', left, right, name="ule")
+        else:
+            return builder.fcmp_ordered('<=', left, right, name="fle")
+    elif operator == operators["GREATER_THAN"]:
+        if is_integer:
+            if is_signed:
+                return builder.icmp_signed('>', left, right, name="sgt")
+            else:
+                return builder.icmp_unsigned('>', left, right, name="ugt")
+        else:
+            return builder.fcmp_ordered('>', left, right, name="fgt")
+    elif operator == operators["GREATER_OR_EQUAL"]:
+        if is_integer:
+            if is_signed:
+                return builder.icmp_signed('>=', left, right, name="sge")
+            else:
+                return builder.icmp_unsigned('>=', left, right, name="uge")
+        else:
+            return builder.fcmp_ordered('>=', left, right, name="fge")
+    
+    # Logical operators
+    elif operator == operators["LOGICAL_AND"]:
+        # Convert to booleans if needed
+        if left.type.width > 1:
+            if is_signed:
+                left_bool = builder.icmp_signed('!=', left, ir.Constant(left.type, 0), name="tobool_left")
+            else:
+                left_bool = builder.icmp_unsigned('!=', left, ir.Constant(left.type, 0), name="tobool_left")
+        else:
+            left_bool = left
+            
+        if right.type.width > 1:
+            if is_signed:
+                right_bool = builder.icmp_signed('!=', right, ir.Constant(right.type, 0), name="tobool_right")
+            else:
+                right_bool = builder.icmp_unsigned('!=', right, ir.Constant(right.type, 0), name="tobool_right")
+        else:
+            right_bool = right
+            
+        return builder.and_(left_bool, right_bool, name="land")
+    elif operator == operators["LOGICAL_OR"]:
+        # Similar to LOGICAL_AND but with OR
+        if left.type.width > 1:
+            if is_signed:
+                left_bool = builder.icmp_signed('!=', left, ir.Constant(left.type, 0), name="tobool_left")
+            else:
+                left_bool = builder.icmp_unsigned('!=', left, ir.Constant(left.type, 0), name="tobool_left")
+        else:
+            left_bool = left
+            
+        if right.type.width > 1:
+            if is_signed:
+                right_bool = builder.icmp_signed('!=', right, ir.Constant(right.type, 0), name="tobool_right")
+            else:
+                right_bool = builder.icmp_unsigned('!=', right, ir.Constant(right.type, 0), name="tobool_right")
+        else:
+            right_bool = right
+            
+        return builder.or_(left_bool, right_bool, name="lor")
+    
+    # Bitwise operators
     elif operator == operators["BITWISE_AND"]:
         return builder.and_(left, right, name="and")
     elif operator == operators["BITWISE_OR"]:
@@ -152,167 +206,13 @@ def handle_binary_expression(self: "Codegen", node: ASTNode.ExpressionNode, buil
     elif operator == operators["SHIFT_LEFT"]:
         return builder.shl(left, right, name="shl")
     elif operator == operators["SHIFT_RIGHT"]:
-        # Arithmetic shift for signed types
         if is_signed:
-            if is_debug:
-                print(f"DEBUG - Using arithmetic right shift (ashr) for signed type")
             return builder.ashr(left, right, name="ashr")
-        # Logical shift for unsigned types
         else:
-            if is_debug:
-                print(f"DEBUG - Using logical right shift (lshr) for unsigned type")
             return builder.lshr(left, right, name="lshr")
-    # Comparison operators
-    elif operator == operators["EQUAL"]:
-        # Ensure operands have the same type for comparison
-        if left.type != right.type:
-            if is_debug:
-                print(f"DEBUG - Type mismatch in comparison: converting operands to match")
-            if left.type.width > right.type.width:
-                right = builder.zext(right, left.type, name="zext_for_cmp") if right.type.width == 1 else right
-            else:
-                left = builder.zext(left, right.type, name="zext_for_cmp") if left.type.width == 1 else left
-        
-        if is_integer:
-            if is_signed:
-                if is_debug:
-                    print(f"DEBUG - Using SIGNED integer comparison (==)")
-                return builder.icmp_signed('==', left, right, name="seq")  # Will return i1
-            else:
-                if is_debug:
-                    print(f"DEBUG - Using UNSIGNED integer comparison (==)")
-                return builder.icmp_unsigned('==', left, right, name="ueq")  # Will return i1
-        else:
-            if is_debug:
-                print(f"DEBUG - Using floating point comparison (==)")
-            return builder.fcmp_ordered('==', left, right, name="feq")  # Will return i1
-    elif operator == operators["NOT_EQUAL"]:
-        if is_integer:
-            if is_signed:
-                if is_debug:
-                    print(f"DEBUG - Using SIGNED integer comparison (!=)")
-                return builder.icmp_signed('!=', left, right, name="sne") 
-            else:
-                if is_debug:
-                    print(f"DEBUG - Using UNSIGNED integer comparison (!=)")
-                return builder.icmp_unsigned('!=', left, right, name="une")
-        else:
-            if is_debug:
-                print(f"DEBUG - Using floating point comparison (!=)")
-            return builder.fcmp_ordered('!=', left, right, name="fne")
-    elif operator == operators["LESS_THAN"]:
-        if is_integer:
-            if is_signed:
-                if is_debug:
-                    print(f"DEBUG - Using SIGNED integer comparison (<)")
-                return builder.icmp_signed('<', left, right, name="slt")
-            else:
-                if is_debug:
-                    print(f"DEBUG - Using UNSIGNED integer comparison (<)")
-                return builder.icmp_unsigned('<', left, right, name="ult")
-        else:
-            if is_debug:
-                print(f"DEBUG - Using floating point comparison (<)")
-            return builder.fcmp_ordered('<', left, right, name="flt")
-    elif operator == operators["LESS_OR_EQUAL"]:
-        if is_integer:
-            if is_signed:
-                if is_debug:
-                    print(f"DEBUG - Using SIGNED integer comparison (<=)")
-                return builder.icmp_signed('<=', left, right, name="sle")
-            else:
-                if is_debug:
-                    print(f"DEBUG - Using UNSIGNED integer comparison (<=)")
-                return builder.icmp_unsigned('<=', left, right, name="ule")
-        else:
-            if is_debug:
-                print(f"DEBUG - Using floating point comparison (<=)")
-            return builder.fcmp_ordered('<=', left, right, name="fle")
-    elif operator == operators["GREATER_THAN"]:
-        if is_integer:
-            if is_signed:
-                if is_debug:
-                    print(f"DEBUG - Using SIGNED integer comparison (>)")
-                return builder.icmp_signed('>', left, right, name="sgt")
-            else:
-                if is_debug:
-                    print(f"DEBUG - Using UNSIGNED integer comparison (>)")
-                return builder.icmp_unsigned('>', left, right, name="ugt")
-        else:
-            if is_debug:
-                print(f"DEBUG - Using floating point comparison (>)")
-            return builder.fcmp_ordered('>', left, right, name="fgt")
-    elif operator == operators["GREATER_OR_EQUAL"]:
-        if is_integer:
-            if is_signed:
-                if is_debug:
-                    print(f"DEBUG - Using SIGNED integer comparison (>=)")
-                return builder.icmp_signed('>=', left, right, name="sge")
-            else:
-                if is_debug:
-                    print(f"DEBUG - Using UNSIGNED integer comparison (>=)") 
-                return builder.icmp_unsigned('>=', left, right, name="uge")
-        else:
-            if is_debug:
-                print(f"DEBUG - Using floating point comparison (>=)")
-            return builder.fcmp_ordered('>=', left, right, name="fge")
-    elif operator == operators["LOGICAL_AND"]:
-        # Perform boolean conversion if needed
-        if left.type.width > 1:
-            if is_signed:
-                if is_debug:
-                    print(f"DEBUG - Converting SIGNED integer to boolean for LOGICAL_AND")
-                left_bool = builder.icmp_signed('!=', left, ir.Constant(left.type, 0), name="tobool_left")
-            else:
-                if is_debug:
-                    print(f"DEBUG - Converting UNSIGNED integer to boolean for LOGICAL_AND")
-                left_bool = builder.icmp_unsigned('!=', left, ir.Constant(left.type, 0), name="tobool_left")
-        else:
-            left_bool = left
-            
-        if right.type.width > 1:
-            if is_signed:
-                if is_debug:
-                    print(f"DEBUG - Converting SIGNED integer to boolean for LOGICAL_AND")
-                right_bool = builder.icmp_signed('!=', right, ir.Constant(right.type, 0), name="tobool_right")
-            else:
-                if is_debug:
-                    print(f"DEBUG - Converting UNSIGNED integer to boolean for LOGICAL_AND")
-                right_bool = builder.icmp_unsigned('!=', right, ir.Constant(right.type, 0), name="tobool_right")
-        else:
-            right_bool = right
-            
-        return builder.and_(left_bool, right_bool, name="land")
-    elif operator == operators["LOGICAL_OR"]:
-        # Perform boolean conversion if needed
-        if left.type.width > 1:
-            if is_signed:
-                if is_debug:
-                    print(f"DEBUG - Converting SIGNED integer to boolean for LOGICAL_OR")
-                left_bool = builder.icmp_signed('!=', left, ir.Constant(left.type, 0), name="tobool_left")
-            else:
-                if is_debug:
-                    print(f"DEBUG - Converting UNSIGNED integer to boolean for LOGICAL_OR")
-                left_bool = builder.icmp_unsigned('!=', left, ir.Constant(left.type, 0), name="tobool_left")
-        else:
-            left_bool = left
-            
-        if right.type.width > 1:
-            if is_signed:
-                if is_debug:
-                    print(f"DEBUG - Converting SIGNED integer to boolean for LOGICAL_OR")
-                right_bool = builder.icmp_signed('!=', right, ir.Constant(right.type, 0), name="tobool_right")
-            else:
-                if is_debug:
-                    print(f"DEBUG - Converting UNSIGNED integer to boolean for LOGICAL_OR")
-                right_bool = builder.icmp_unsigned('!=', right, ir.Constant(right.type, 0), name="tobool_right")
-        else:
-            right_bool = right
-            
-        return builder.or_(left_bool, right_bool, name="lor")
     else:
         raise ValueError(f"Unsupported binary operator: {operator}")
-    
+ 
 def handle_primary_expression(self: "Codegen", node: ASTNode.ExpressionNode, builder: ir.IRBuilder, var_type, **kwargs):
     if node.node_type == NodeType.REFERENCE and node.value == '&': 
         return self.handle_pointer(node, builder)

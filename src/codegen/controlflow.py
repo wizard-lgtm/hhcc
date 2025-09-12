@@ -43,10 +43,23 @@ def handle_return(self, node: ASTNode.Return, builder: ir.IRBuilder, **kwargs):
         
 def handle_if_statement(self, node: ASTNode.IfStatement, builder: ir.IRBuilder, **kwargs):
     """Handle if statement with proper scope management."""
-    # Evaluate the condition
-    condition = self.handle_expression(node.condition, builder, self.type_map[Datatypes.BOOL])
+    # Evaluate the condition - let it determine its own type first
+    condition = self.handle_expression(node.condition, builder, None)  # Don't force bool type
+    
+    # If the condition is not already i1 (boolean), convert it
     if condition.type != ir.IntType(1):
-        condition = builder.trunc(condition, ir.IntType(1))
+        # Convert to boolean by comparing with zero
+        if isinstance(condition.type, ir.IntType):
+            zero = ir.Constant(condition.type, 0)
+            condition = builder.icmp_ne(condition, zero, name="to_bool")
+        elif isinstance(condition.type, (ir.FloatType, ir.DoubleType)):
+            zero = ir.Constant(condition.type, 0.0)
+            condition = builder.fcmp_one(condition, zero, name="to_bool")
+        elif isinstance(condition.type, ir.PointerType):
+            null_ptr = ir.Constant(condition.type, None)
+            condition = builder.icmp_ne(condition, null_ptr, name="to_bool")
+        else:
+            raise ValueError(f"Cannot convert type {condition.type} to boolean")
 
     # Create basic blocks
     then_block = builder.append_basic_block("if.then")
@@ -61,7 +74,6 @@ def handle_if_statement(self, node: ASTNode.IfStatement, builder: ir.IRBuilder, 
 
     # Generate code for the 'then' block
     builder.position_at_end(then_block)
-    # Pass needs_block_scope=True so the block creates its own scope
     self.process_node(node.if_body, builder=builder, needs_block_scope=True)
     if not builder.block.is_terminated:
         builder.branch(merge_block)
@@ -75,7 +87,6 @@ def handle_if_statement(self, node: ASTNode.IfStatement, builder: ir.IRBuilder, 
 
     # Position the builder at the merge block
     builder.position_at_end(merge_block)
-
 def handle_while_loop(self, node: ASTNode.WhileLoop, builder: ir.IRBuilder, **kwargs):
     """Handle while loop with proper scope management and break/continue support."""
     # Create basic blocks for the loop
