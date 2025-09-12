@@ -107,6 +107,8 @@ def handle_while_loop(self, node: ASTNode.WhileLoop, builder: ir.IRBuilder, **kw
         self.symbol_table.enter_scope(ScopeType.BLOCK, "while_body")
         try:
             for stmt in node.body.nodes:
+                if builder.block.is_terminated: 
+                    break
                 self.process_node(stmt, builder=builder, **kwargs)
         finally:
             self.symbol_table.exit_scope()
@@ -169,6 +171,8 @@ def handle_for_loop(self, node: ASTNode.ForLoop, builder: ir.IRBuilder, **kwargs
             # Generate code for the body block
             builder.position_at_end(loop_body_block)
             for stmt in node.body.nodes:
+                if builder.block.is_terminated: 
+                    break
                 self.process_node(stmt, builder=builder, **kwargs)
 
             # After the body, move to the update block if not terminated
