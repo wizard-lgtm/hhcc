@@ -165,14 +165,32 @@ class Datatypes:
         return cls.user_defined_types.get(name, None)
         
     @classmethod
-    def is_signed_type(cls, type_name: str) -> bool:
-        """Determine if a type is signed."""
+    def is_signed_type(cls, type_name) -> bool:
+        """Determine if a type is signed (works with both strings and llvmlite types)."""
         if not type_name:
-            return False  # Default to unsigned if type_name is None or empty
-        if isinstance(type_name, str) and type_name.endswith('*'):
-            return False  # Pointers are never signed
-        return type_name.startswith("I") or type_name.startswith("F")
+            return False
 
+        # Handle llvmlite types
+        from llvmlite import ir
+        if isinstance(type_name, ir.IntType):
+            # Look up in your type_info to see if it's signed
+            for info in cls.type_info.values():
+                if info["type"] == type_name:
+                    return info["signed"]
+            # Default: treat integers as signed
+            return True
+        if isinstance(type_name, (ir.FloatType, ir.DoubleType)):
+            return True
+        if isinstance(type_name, ir.PointerType):
+            return False
+
+        # Handle your string-based type system
+        if isinstance(type_name, str):
+            if type_name.endswith('*'):
+                return False
+            return type_name.startswith("I") or type_name.startswith("F")
+
+        return False
     @classmethod
     def is_integer_type(cls, type_name: str) -> bool:
         """Determine if a type is an integer type."""
