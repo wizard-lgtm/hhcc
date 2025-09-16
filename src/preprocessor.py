@@ -40,13 +40,18 @@ class Preprocessor:
         lines = self.code.split('\n')
         processed_lines = []
         
+        # Stack to track conditional compilation blocks
+        conditional_stack = []
+        skip_lines = False
+        
         for line_num, line in enumerate(lines):
             # Remove comments before processing directives
             line_without_comments = self.remove_comments(line)
             
             # Skip empty lines after comment removal
             if not line_without_comments:
-                processed_lines.append(line)  # Keep original line to preserve formatting
+                if not skip_lines:
+                    processed_lines.append(line)  # Keep original line to preserve formatting
                 continue
                 
             # Check for preprocessor directives only on non-comment content
@@ -57,14 +62,103 @@ class Preprocessor:
                 
                 if not parts:
                     self.syntax_error("Empty directive", line_num + 1)
-                    processed_lines.append(line)
+                    if not skip_lines:
+                        processed_lines.append(line)
                     continue
                 
                 directive_name = parts[0][1:] if parts[0].startswith('#') else parts[0]  # Remove # if present
                 arguments = parts[1] if len(parts) > 1 else ""
                 full_directive = f"#{directive_name}"
                 
-                # Process the directive
+                # Handle conditional compilation directives first
+                if full_directive == directives.get("IFDEF", "#ifdef"):
+                    condition_met = self.evaluate_ifdef(arguments.strip())
+                    conditional_stack.append({'type': 'ifdef', 'condition_met': condition_met, 'has_else': False})
+                    skip_lines = not condition_met
+                    continue
+                    
+                elif full_directive == directives.get("IFNDEF", "#ifndef"):
+                    condition_met = self.evaluate_ifndef(arguments.strip())
+                    conditional_stack.append({'type': 'ifndef', 'condition_met': condition_met, 'has_else': False})
+                    skip_lines = not condition_met
+                    continue
+                    
+                elif full_directive in [directives.get("ELIFDEF", "#elifdef"), "#elifdef"]:
+                    if not conditional_stack:
+                        self.syntax_error("Unexpected #elifdef without #ifdef or #ifndef", line_num + 1)
+                        continue
+                        
+                    current_block = conditional_stack[-1]
+                    if current_block['has_else']:
+                        self.syntax_error("#elifdef after #else", line_num + 1)
+                        continue
+                        
+                    # If previous condition was met, skip this elifdef
+                    if current_block['condition_met']:
+                        skip_lines = True
+                    else:
+                        # Evaluate this elifdef condition
+                        condition_met = self.evaluate_ifdef(arguments.strip())
+                        current_block['condition_met'] = condition_met
+                        skip_lines = not condition_met
+                    continue
+                    
+                elif full_directive in [directives.get("ELIFNDEF", "#elifndef"), "#elifndef"]:
+                    if not conditional_stack:
+                        self.syntax_error("Unexpected #elifndef without #ifdef or #ifndef", line_num + 1)
+                        continue
+                        
+                    current_block = conditional_stack[-1]
+                    if current_block['has_else']:
+                        self.syntax_error("#elifndef after #else", line_num + 1)
+                        continue
+                        
+                    # If previous condition was met, skip this elifndef
+                    if current_block['condition_met']:
+                        skip_lines = True
+                    else:
+                        # Evaluate this elifndef condition
+                        condition_met = self.evaluate_ifndef(arguments.strip())
+                        current_block['condition_met'] = condition_met
+                        skip_lines = not condition_met
+                    continue
+                    
+                elif full_directive == directives.get("ELSE", "#else"):
+                    if not conditional_stack:
+                        self.syntax_error("Unexpected #else without #ifdef or #ifndef", line_num + 1)
+                        continue
+                        
+                    current_block = conditional_stack[-1]
+                    if current_block['has_else']:
+                        self.syntax_error("Multiple #else in conditional block", line_num + 1)
+                        continue
+                        
+                    current_block['has_else'] = True
+                    # If previous condition was met, skip else block
+                    skip_lines = current_block['condition_met']
+                    continue
+                    
+                elif full_directive == directives.get("ENDIF", "#endif"):
+                    if not conditional_stack:
+                        self.syntax_error("Unexpected #endif without #ifdef or #ifndef", line_num + 1)
+                        continue
+                        
+                    conditional_stack.pop()
+                    # Update skip_lines based on remaining stack
+                    skip_lines = any(not block['condition_met'] for block in conditional_stack)
+                    continue
+                    
+                elif full_directive in [directives.get("ERROR", "#error"), "#error"]:
+                    # Always process #error, even if in skipped block
+                    error_message = arguments.strip().strip('"\'')
+                    self.syntax_error(f"#error: {error_message}", line_num + 1)
+                    continue
+                
+                # Skip other directives if we're in a false conditional block
+                if skip_lines:
+                    continue
+                
+                # Process other directives
                 if full_directive == directives.get("DEFINE", "#define"):
                     # For now, just remove the line and store the define
                     self.handle_define_simple(arguments.strip())
@@ -78,27 +172,42 @@ class Preprocessor:
                     # Handle undef
                     self.handle_undef_simple(arguments.strip())
                     continue  # Don't add this line to processed_lines
-                elif full_directive in [directives.get("IFDEF", "#ifdef"), 
-                                       directives.get("IFNDEF", "#ifndef"),
-                                       directives.get("ENDIF", "#endif"),
-                                       directives.get("ELSE", "#else")]:
-                    # For now, just remove conditional compilation directives
-                    continue  # Don't add this line to processed_lines
                 else:
                     self.syntax_error(f"Unspecified directive: {parts[0]}", line_num + 1)
                     processed_lines.append(line)
             else:
-                # Regular code line, keep as is
-                processed_lines.append(line)
+                # Regular code line, only keep if not in skipped block
+                if not skip_lines:
+                    processed_lines.append(line)
+        
+        # Check for unmatched conditional directives
+        if conditional_stack:
+            self.syntax_error("Unmatched conditional directive(s) - missing #endif")
         
         # Join lines back together
         processed_code = '\n'.join(processed_lines)
+        
+        # Debug output
+        if self.defines:
+            print(f"DEBUG: Active defines before replacement: {self.defines}")
+        if self.function_macros:
+            print(f"DEBUG: Active function macros before replacement: {self.function_macros}")
         
         # Process all defined macros in the code
         processed_code = self.replace_defines(processed_code)
         
         # Return processed code
         return processed_code
+    
+    def evaluate_ifdef(self, identifier):
+        """Evaluate #ifdef condition"""
+        identifier = identifier.strip()
+        return identifier in self.defines or identifier in self.function_macros
+    
+    def evaluate_ifndef(self, identifier):
+        """Evaluate #ifndef condition"""
+        identifier = identifier.strip()
+        return not (identifier in self.defines or identifier in self.function_macros)
     
     def handle_define_simple(self, arguments):
         """Simplified define handler for line-by-line processing"""
@@ -323,14 +432,27 @@ class Preprocessor:
     
     def replace_defines(self, code):
         # First pass: replace all object-like macros
-        for identifier, replacement in self.defines.items():
+        # We need to be careful about the order - replace longer names first to avoid partial matches
+        sorted_defines = sorted(self.defines.items(), key=lambda x: len(x[0]), reverse=True)
+        
+        for identifier, replacement in sorted_defines:
+            # Debug output
+            print(f"DEBUG: Replacing '{identifier}' with '{replacement}'")
             # Use word boundaries to avoid partial replacements
             pattern = r'\b' + re.escape(identifier) + r'\b'
+            before_count = len(re.findall(pattern, code))
             code = re.sub(pattern, replacement, code)
+            after_count = len(re.findall(pattern, code))
+            if before_count > 0:
+                print(f"DEBUG: Replaced {before_count} instances of '{identifier}' (remaining: {after_count})")
         
         # Second pass: replace function-like macros
-        for macro_name, macro_info in self.function_macros.items():
-            pattern = r'\b' + re.escape(macro_name) + r'\s*\((.*?)\)'
+        # Sort by name length (longest first) to handle overlapping macro names
+        sorted_function_macros = sorted(self.function_macros.items(), key=lambda x: len(x[0]), reverse=True)
+        
+        for macro_name, macro_info in sorted_function_macros:
+            # Use a more robust pattern that handles whitespace better
+            pattern = r'\b' + re.escape(macro_name) + r'\s*\(((?:[^()]*|\([^()]*\))*)\)'
             
             # Find all instances of the macro
             macro_matches = list(re.finditer(pattern, code))
@@ -341,44 +463,45 @@ class Preprocessor:
                 
                 # Parse arguments with proper handling of nested parentheses
                 args = []
-                current_arg = ""
-                paren_level = 0
-                in_string = False
-                escape_next = False
-                
-                for char in args_str:
-                    if escape_next:
-                        current_arg += char
-                        escape_next = False
-                        continue
-                        
-                    if char == '\\':
-                        current_arg += char
-                        escape_next = True
-                        continue
-                        
-                    if char == '"' and not escape_next:
-                        in_string = not in_string
-                        current_arg += char
-                        continue
-                        
-                    if not in_string:
-                        if char == '(':
-                            paren_level += 1
+                if args_str.strip():  # Only parse if there are arguments
+                    current_arg = ""
+                    paren_level = 0
+                    in_string = False
+                    escape_next = False
+                    
+                    for char in args_str:
+                        if escape_next:
                             current_arg += char
-                        elif char == ')':
-                            paren_level -= 1
+                            escape_next = False
+                            continue
+                            
+                        if char == '\\':
                             current_arg += char
-                        elif char == ',' and paren_level == 0:
-                            args.append(current_arg.strip())
-                            current_arg = ""
+                            escape_next = True
+                            continue
+                            
+                        if char == '"' and not escape_next:
+                            in_string = not in_string
+                            current_arg += char
+                            continue
+                            
+                        if not in_string:
+                            if char == '(':
+                                paren_level += 1
+                                current_arg += char
+                            elif char == ')':
+                                paren_level -= 1
+                                current_arg += char
+                            elif char == ',' and paren_level == 0:
+                                args.append(current_arg.strip())
+                                current_arg = ""
+                            else:
+                                current_arg += char
                         else:
                             current_arg += char
-                    else:
-                        current_arg += char
-                
-                if current_arg:
-                    args.append(current_arg.strip())
+                    
+                    if current_arg:
+                        args.append(current_arg.strip())
                 
                 # Generate replacement
                 replacement = macro_info['replacement']

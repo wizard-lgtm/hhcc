@@ -1,46 +1,53 @@
-// 1. Object-like Macros (Constants)
-#define PI 3.14159
-#define BUFFER_SIZE 256
-#define ENABLE_DEBUG 1
+#include "lib/print.HC"
+// defines_test_io.HC
+// Test suite for HolyC preprocessor defines using custom print functions
 
-// 2. Function-like Macros (Inline Calculations)
-#define SQUARE(x) ((x)*(x))
-#define MAX(a, b) ((a) > (b) ? (a) : (b))
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
+// --- Basic define usage ---
+#define MAGIC_NUMBER 420
+#define NAME "HolyC Test"
+#define MAX_CHARS (1 << 10)
 
-// 3. Multi-line Macros
-#define PRINT_DEBUG(msg) \
-    continue;
+print_str("--- Basic defines ---\n");
+print_int(MAGIC_NUMBER); print_chr('\n'); // should print 420
+print_str(NAME); print_chr('\n');         // should print HolyC Test
+print_int(MAX_CHARS); print_chr('\n');    // should print 1024
 
-// 4. Stringizing Macro (# operator)
-#define STRINGIFY(x) #x
+// --- #undef test ---
+#undef MAGIC_NUMBER
 
-// 5. Token Pasting (## operator)
-#define CONCAT(a, b) a##b
-
-// 6. Variadic Macros (__VA_ARGS__)
-#define LOG(format, ...) printf(format, __VA_ARGS__)
-
-// 7. Undefining a Macro
-#define TEMP 42
-#undef TEMP  // TEMP is now undefined
-
-// 8. Conditional Compilation
-#define DEBUG
-#ifdef DEBUG
-    #define LOG_MESSAGE(msg) printf("LOG: %s\n", msg)
+#ifdef MAGIC_NUMBER
+print_str("ERROR: MAGIC_NUMBER still defined!\n");
 #else
-    #define LOG_MESSAGE(msg)
+print_str("SUCCESS: MAGIC_NUMBER was undefined.\n");
 #endif
 
-// 9. Header Guards (For Header Files)
-#ifndef MY_HEADER_H
-#define MY_HEADER_H
-// Header content here
+// --- #ifdef / #else test ---
+#define SOME_FLAG
+
+#ifdef SOME_FLAG
+print_str("SUCCESS: SOME_FLAG is defined.\n");
+#else
+print_str("ERROR: SOME_FLAG was not detected.\n");
 #endif
 
-// 10. Assembly Macros (HolyC Specific)
-#define HALT() asm { HLT; }  // Halts the CPU
+// --- #ifndef test ---
+#ifndef OTHER_FLAG
+print_str("SUCCESS: OTHER_FLAG is not defined.\n");
+#endif
 
-// 11. Defining Structs or Inline Code with Macros
-#define DEFINE_STRUCT() struct { int x, y; }
+// --- #elifdef chain test ---
+#ifdef FOO
+print_str("FOO branch taken\n");
+#elifdef YEET
+print_str("YEET branch taken\n");
+#else
+print_str("SUCCESS: Neither FOO nor YEET defined, took else branch.\n");
+#endif
+
+// --- #error test (commented out for normal runs) ---
+// Uncomment to verify compiler error reporting
+// #error "Manual failure test for #error directive"
+
+U32 main(){
+    return 0;
+}
