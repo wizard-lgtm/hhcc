@@ -129,6 +129,7 @@ class Compiler:
             print("==== Running Codegen ====")
         codegen = Codegen(self)
         llvmir = codegen.gen()
+
         
         # Default output file name if not specified
         if not self.output_file:

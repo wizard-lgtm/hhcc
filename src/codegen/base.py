@@ -1,5 +1,4 @@
-
-from .symboltable import SymbolTable 
+from .symboltable import SymbolTable
 from llvmlite import ir, binding
 from typing import TYPE_CHECKING, Dict, Callable, NamedTuple, Type
 from astnodes import *
@@ -7,7 +6,7 @@ from lexer import *
 
 # Import your modules
 from . import general
-from . import expressions  
+from . import expressions
 from . import controlflow
 from . import casting
 from . import functions
@@ -21,35 +20,31 @@ if TYPE_CHECKING:
     from compiler import Compiler  # Only for type hints
 
 
-
-
 # Utility functions for pointer level handling
 def count_pointer_level(type_str: str) -> tuple[str, int]:
     """
     Count the pointer level from a type string.
     Returns (base_type, pointer_level)
-    
+
     Examples:
     - "int" -> ("int", 0)
     - "int*" -> ("int", 1)
     - "char**" -> ("char", 2)
     - "MyStruct***" -> ("MyStruct", 3)
     """
-    base_type = type_str.rstrip('*')
+    base_type = type_str.rstrip("*")
     pointer_level = len(type_str) - len(base_type)
     return base_type, pointer_level
-
-
 
 
 def apply_pointer_level(base_llvm_type: Any, pointer_level: int) -> Any:
     """
     Apply pointer level to an LLVM base type.
-    
+
     Args:
         base_llvm_type: Base LLVM type (e.g., ir.IntType(32))
         pointer_level: Number of pointer levels (0 = no pointer, 1 = pointer, etc.)
-    
+
     Returns:
         LLVM type with appropriate pointer levels applied
     """
@@ -61,6 +56,8 @@ def apply_pointer_level(base_llvm_type: Any, pointer_level: int) -> Any:
 
 import inspect
 import types
+
+
 class Codegen:
     def _bind_handler_functions(self, modules):
         """Automatically bind all functions from the given modules to this instance."""
@@ -70,15 +67,15 @@ class Codegen:
                 # Skip private functions (starting with _) if you want
                 # if name.startswith('_'):
                 #     continue
-                    
+
                 # Bind the function to this instance
                 bound_method = types.MethodType(obj, self)
                 setattr(self, name, bound_method)
-                
+
     def __init__(self, compiler: "Compiler"):
         # Initialize the new symbol table
         self.symbol_table = SymbolTable()
-        
+
         self.compiler = compiler
         self.astnodes = compiler.astnodes
         if self.compiler.triple:
@@ -88,7 +85,7 @@ class Codegen:
 
         self.node_index = 0
         self.current_node = self.astnodes[self.node_index]
-        
+
         # For storing function and struct information
         self.function_map = {}
         self.struct_table = {}
@@ -96,27 +93,22 @@ class Codegen:
         self.string_literals = []
         self.loop_stack: List[controlflow.LoopContext] = []
 
-
-        
-                # List of modules to auto-bind functions from
+        # List of modules to auto-bind functions from
         handler_modules = [
             general,
-            expressions, 
+            expressions,
             controlflow,
             casting,
             functions,
             variables,
             structures,
             symboltable,
-            inlineasm
+            inlineasm,
         ]
 
         self._bind_handler_functions(handler_modules)
 
-
         import types
-        
-
 
         # Node type to handler mapping
         self.node_handlers: Dict[Type, Callable] = {
@@ -144,7 +136,7 @@ class Codegen:
             ASTNode.ArrayElementAssignment: self.handle_array_element_assignment,
             ASTNode.ArrayDeclaration: self.handle_array_declaration,
             ASTNode.InlineAsm: self.handle_inline_asm,
-            ASTNode.MethodCall: self.handle_class_method_call 
+            ASTNode.MethodCall: self.handle_class_method_call,
         }
 
         # Define correct LLVM types with appropriate signedness
@@ -177,7 +169,7 @@ class Codegen:
             Datatypes.I64: i64_type,
             Datatypes.U0: void_type,
             Datatypes.F32: f32_type,
-            Datatypes.F64: f64_type
+            Datatypes.F64: f64_type,
         }
 
         self.type_signedness = {
@@ -200,12 +192,11 @@ class Codegen:
         if getattr(self, "codegen", None) and getattr(self.codegen, "debug", False):
             print(f"DEBUG:", {*args})
 
-
-    def generation_error(self, message: str, node: 'ASTNode'):
+    def generation_error(self, message: str, node: "ASTNode"):
         """Report an error with a formatted message, based on the ASTNode (instead of token)."""
-        
+
         # Retrieve line and column information from the ASTNode (assuming these attributes exist)
-        if hasattr(node, 'line') and hasattr(node, 'column'):
+        if hasattr(node, "line") and hasattr(node, "column"):
             line = node.line
             column = node.column
         else:
@@ -213,7 +204,9 @@ class Codegen:
 
         # If source code is available, try to get the line of code where the error occurred
         try:
-            error_line = self.compiler.code.splitlines()[line - 1]  # Subtract 1 for 0-based index
+            error_line = self.compiler.code.splitlines()[
+                line - 1
+            ]  # Subtract 1 for 0-based index
         except IndexError:
             error_line = "[ERROR: Line out of range]"
 
@@ -224,20 +217,21 @@ class Codegen:
         print(f"Generation Error: {message} at line {line}, column {column}")
         print(f"{error_line}")
         print(f"{caret_position}")
-        
+
         # Print detailed node information
         print(f"Caused by ASTNode: {repr(node)}")
 
         # Raise an exception with the full error message
-        raise Exception(f"{message} at line {line}, column {column}\n"
-                        f"{error_line}\n"
-                        f"{caret_position}\n"
-                        f"Caused by ASTNode: {repr(node)}")
+        raise Exception(
+            f"{message} at line {line}, column {column}\n"
+            f"{error_line}\n"
+            f"{caret_position}\n"
+            f"Caused by ASTNode: {repr(node)}"
+        )
 
-        
     def add_function(self, function: ASTNode.FunctionCall):
         self.function_map[function.name] = function
-        
+
     def lookup_function(self, name: str) -> Optional[ASTNode.FunctionDefinition]:
         """
         Look up a function by name and return the FunctionDefinition.
@@ -254,102 +248,192 @@ class Codegen:
         self.current_node = self.astnodes[self.node_index]
         return self.current_node
 
-
     def get_llvm_type(self, type: str):
         if type in self.type_map:
             return self.type_map[type]
         # handle pointer types
-        elif type.endswith('*'):
-            base_type = self.get_llvm_type(type[:-1]) # delete the * symbol and get it's type
-            return ir.PointerType(base_type) 
+        elif type.endswith("*"):
+            base_type = self.get_llvm_type(
+                type[:-1]
+            )  # delete the * symbol and get it's type
+            return ir.PointerType(base_type)
 
-        else: # other types (classes)
+        else:  # other types (classes)
             # TODO! implement
-            print("Non-Primitive types did not implemented. Returning a generic type (U8*)")
-            return ir.PointerType(ir.IntType(8)) # return generic u8 pointer
+            print(
+                "Non-Primitive types did not implemented. Returning a generic type (U8*)"
+            )
+            return ir.PointerType(ir.IntType(8))  # return generic u8 pointer
 
     def gen(self):
         # Initialize LLVM
-        binding.initialize()
         binding.initialize_native_target()
         binding.initialize_native_asmprinter()
-        
+
         try:
             # Try to use the specified target
             print(self.triple)
             target = binding.Target.from_triple(self.triple)
         except RuntimeError:
             # get native target if specified target doesn't available
-            print(f"Warning: Target '{self.triple}' not available, using native target instead")
+            print(
+                f"Warning: Target '{self.triple}' not available, using native target instead"
+            )
             target = binding.Target.from_default_triple()
-        
+
         target_machine = target.create_target_machine()
-        
+
         # data layout string
         data_layout = target_machine.target_data
-        
-        # create the module 
+
+        # create the module
         module = ir.Module(name=self.compiler.file)
-        
+
         # Use the actual triple from the target machine to ensure compatibility
         module.triple = target_machine.triple
         module.data_layout = str(data_layout)
-        
+
         # Build context for code generation
         self.module = module
         self.context = ir.context.Context()
         self.builder = None
         self.function = None
-        
-        # iterate astnodes for handler 
+
+        # Separate function definitions from top-level code
+        function_definitions = []
+        top_level_code = []
+        explicit_main_found = False
+
         for node in self.astnodes:
+            if isinstance(node, ASTNode.FunctionDefinition):
+                function_definitions.append(node)
+                if node.name == "main":
+                    explicit_main_found = True
+            else:
+                top_level_code.append(node)
+
+        # Always process ALL function definitions first to ensure they're available for calls
+        for node in function_definitions:
             self.process_node(node)
-            
+
+        # Handle different cases of main function and top-level code
+        if explicit_main_found and top_level_code:
+            # Both explicit main and top-level code exist
+            # Process non-main functions first
+            for node in function_definitions:
+                if node.name != "main":
+                    self.process_node(node)
+
+            # Process the user's main function but rename it to avoid conflict
+            user_main_node = next(
+                node for node in function_definitions if node.name == "main"
+            )
+            original_name = user_main_node.name
+            user_main_node.name = "_user_main"  # Rename before processing
+            self.process_node(user_main_node)
+            user_main_node.name = original_name  # Restore for reference
+
+            # Add an alias in function_map so "main" calls work
+            if "_user_main" in self.function_map:
+                self.function_map["main"] = self.function_map["_user_main"]
+
+            # Create wrapper main function that executes top-level code
+            main_func_type = ir.FunctionType(ir.IntType(32), [])
+            main_func = ir.Function(self.module, main_func_type, name="main")
+            main_block = main_func.append_basic_block(name="entry")
+            main_builder = ir.IRBuilder(main_block)
+
+            # Set up builder context for top-level code
+            self.function = main_func
+            self.builder = main_builder
+
+            # Execute top-level code (main() calls will now resolve to the aliased function)
+            for node in top_level_code:
+                self.process_node(node, builder=self.builder)
+
+            # Return 0 if no explicit return
+            if not main_builder.block.is_terminated:
+                main_builder.ret(ir.Constant(ir.IntType(32), 0))
+
+        elif explicit_main_found and not top_level_code:
+            # Only explicit main exists, no top-level code
+            # Process all function definitions normally
+            for node in function_definitions:
+                self.process_node(node)
+
+        elif not explicit_main_found and top_level_code:
+            # Only top-level code exists, no explicit main
+            # Create main function for top-level code
+            main_func_type = ir.FunctionType(ir.IntType(32), [])
+            main_func = ir.Function(self.module, main_func_type, name="main")
+            main_block = main_func.append_basic_block(name="entry")
+            main_builder = ir.IRBuilder(main_block)
+
+            # Set up builder context
+            self.function = main_func
+            self.builder = main_builder
+
+            # Execute top-level code
+            for node in top_level_code:
+                self.process_node(node, builder=self.builder)
+
+            # Return 0
+            main_builder.ret(ir.Constant(ir.IntType(32), 0))
+
+        else:
+            # Neither explicit main nor top-level code
+            # Create empty main that returns 0
+            main_func_type = ir.FunctionType(ir.IntType(32), [])
+            main_func = ir.Function(self.module, main_func_type, name="main")
+            main_block = main_func.append_basic_block(name="entry")
+            main_builder = ir.IRBuilder(main_block)
+            main_builder.ret(ir.Constant(ir.IntType(32), 0))
+
         return module
-    
+
     def process_node(self, node, **kwargs):
         # Get the node's class type
         node_class = type(node)
-        
+
         # Look up and call the appropriate handler
         if node_class in self.node_handlers:
             return self.node_handlers[node_class](node, **kwargs)
         else:
             print(f"Warning: No handler for node type {node_class.__name__}")
             return None
-    
+
     def turn_variable_type_to_llvm_type(self, type: Datatypes):
-        llvm_type  = self.type_map[type]
+        llvm_type = self.type_map[type]
         return llvm_type
+
     def get_variable_pointer(self, name):
         """Get the LLVM value pointer for a variable."""
         symbol = self.symbol_table.lookup(name)
         if not symbol:
             raise Exception(f"Undefined variable: {name}")
-        
+
         return symbol.llvm_value
 
-
-
-
-
     def handle_comment(self, node: ASTNode.Comment, **kwargs):
-        if 'builder' in kwargs and kwargs['builder'] is not None:
-            builder = kwargs['builder']
+        if "builder" in kwargs and kwargs["builder"] is not None:
+            builder = kwargs["builder"]
             comment_text = node.text
             if node.is_inline:
                 comment_text = "INLINE: " + comment_text
-                
+
             # Add a custom metadata node that we can convert to a comment when printing
-            comment_md = builder.module.add_metadata([ir.MetaDataString(builder.module, comment_text)])
+            comment_md = builder.module.add_metadata(
+                [ir.MetaDataString(builder.module, comment_text)]
+            )
+
     def _create_string_constant(self, builder, string_value):
         """
         Create a string constant and return a pointer to it
-        
+
         Args:
             builder: LLVM IR builder
             string_value: The string value (with or without quotes)
-            
+
         Returns:
             LLVM constant representing i8* pointer to the string
         """
@@ -360,19 +444,32 @@ class Codegen:
             clean_string = string_value[1:-1]
         else:
             clean_string = string_value
-        
+
         # Handle escape sequences
-        clean_string = clean_string.replace('\\n', '\n').replace('\\t', '\t').replace('\\"', '"').replace("\\'", "'")
-        
+        clean_string = (
+            clean_string.replace("\\n", "\n")
+            .replace("\\t", "\t")
+            .replace('\\"', '"')
+            .replace("\\'", "'")
+        )
+
         # Create the string constant
-        string_const = ir.Constant(ir.ArrayType(ir.IntType(8), len(clean_string) + 1), 
-                                bytearray(clean_string.encode('utf-8') + b'\0'))
-        
+        string_const = ir.Constant(
+            ir.ArrayType(ir.IntType(8), len(clean_string) + 1),
+            bytearray(clean_string.encode("utf-8") + b"\0"),
+        )
+
         # Create a global variable to hold the string
-        global_string = ir.GlobalVariable(self.module, string_const.type, name=f"str_{hash(clean_string) & 0xFFFFFFFF}")
+        global_string = ir.GlobalVariable(
+            self.module,
+            string_const.type,
+            name=f"str_{hash(clean_string) & 0xFFFFFFFF}",
+        )
         global_string.initializer = string_const
         global_string.global_constant = True
-        global_string.linkage = 'private'
-        
+        global_string.linkage = "private"
+
         # Return a pointer to the string (i8*)
-        return global_string.gep([ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)])
+        return global_string.gep(
+            [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)]
+        )
