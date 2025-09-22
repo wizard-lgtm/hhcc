@@ -413,53 +413,236 @@ class Preprocessor:
         
         # Remove the undef directive from the code
         return code[:start] + code[end+1:]  # Include the newline
-    
-    # Placeholder implementations for conditional compilation
+
     def handle_ifdef(self, code, start, end, arguments):
-        # For now, we'll just remove the directive and keep the code
-        # A full implementation would need to handle matching #endif and conditional evaluation
-        return code[:start] + code[end+1:]
+        """
+        Handle #ifdef directive - this is a placeholder implementation.
+        Note: The main preprocess() method already handles conditional compilation properly.
+        This method would be used in a different processing approach.
+        """
+        # Parse the identifier
+        identifier = arguments.strip()
         
+        # Find the matching #endif
+        endif_pos = self.find_matching_endif(code, end)
+        if endif_pos == -1:
+            self.syntax_error(f"Unmatched #ifdef for '{identifier}' - missing #endif")
+            return code
+        
+        # Check if the identifier is defined
+        is_defined = identifier in self.defines or identifier in self.function_macros
+        
+        if is_defined:
+            # Keep the content between #ifdef and #endif, remove the directives
+            content = code[end+1:endif_pos[0]]
+            return code[:start] + content + code[endif_pos[1]+1:]
+        else:
+            # Remove everything from #ifdef to #endif
+            return code[:start] + code[endif_pos[1]+1:]
+
     def handle_ifndef(self, code, start, end, arguments):
-        # For now, we'll just remove the directive and keep the code
-        return code[:start] + code[end+1:]
+        """
+        Handle #ifndef directive - this is a placeholder implementation.
+        Note: The main preprocess() method already handles conditional compilation properly.
+        This method would be used in a different processing approach.
+        """
+        # Parse the identifier
+        identifier = arguments.strip()
         
+        # Find the matching #endif
+        endif_pos = self.find_matching_endif(code, end)
+        if endif_pos == -1:
+            self.syntax_error(f"Unmatched #ifndef for '{identifier}' - missing #endif")
+            return code
+        
+        # Check if the identifier is NOT defined
+        is_not_defined = not (identifier in self.defines or identifier in self.function_macros)
+        
+        if is_not_defined:
+            # Keep the content between #ifndef and #endif, remove the directives
+            content = code[end+1:endif_pos[0]]
+            return code[:start] + content + code[endif_pos[1]+1:]
+        else:
+            # Remove everything from #ifndef to #endif
+            return code[:start] + code[endif_pos[1]+1:]
+
     def handle_endif(self, code, start, end):
-        # For now, we'll just remove the directive
-        return code[:start] + code[end+1:]
-        
+        """
+        Handle #endif directive - this is a placeholder implementation.
+        Note: The main preprocess() method already handles conditional compilation properly.
+        This method would be used in a different processing approach.
+        """
+        # In this implementation approach, #endif is handled by the #ifdef/#ifndef handlers
+        # This method would only be called for unmatched #endif
+        self.syntax_error("Unmatched #endif without corresponding #ifdef or #ifndef")
+        return code
+
     def handle_else(self, code, start, end):
-        # For now, we'll just remove the directive
+        """
+        Handle #else directive - this is a placeholder implementation.
+        Note: The main preprocess() method already handles conditional compilation properly.
+        This method would be used in a different processing approach.
+        """
+        # In this implementation approach, #else would be handled by the #ifdef/#ifndef handlers
+        # This method would only be called for unmatched #else
+        self.syntax_error("Unmatched #else without corresponding #ifdef or #ifndef")
+        return code
+
+    def find_matching_endif(self, code, start_pos):
+        """
+        Helper method to find the matching #endif for a given #ifdef/#ifndef.
+        Returns tuple (start_pos, end_pos) of the #endif directive, or -1 if not found.
+        """
+        pos = start_pos
+        nest_level = 1  # We're already inside one conditional block
+        
+        while pos < len(code):
+            # Find the next preprocessor directive
+            hash_pos = code.find('#', pos)
+            if hash_pos == -1:
+                break
+                
+            # Get the line containing the directive
+            line_start = hash_pos
+            while line_start > 0 and code[line_start-1] != '\n':
+                line_start -= 1
+                
+            line_end = hash_pos
+            while line_end < len(code) and code[line_end] != '\n':
+                line_end += 1
+                
+            directive_line = code[line_start:line_end].strip()
+            
+            # Skip if this # is not at the start of the directive (could be in a comment)
+            if not directive_line.startswith('#'):
+                pos = hash_pos + 1
+                continue
+                
+            # Parse the directive
+            parts = directive_line.split(None, 1)
+            if not parts:
+                pos = line_end + 1
+                continue
+                
+            directive_name = parts[0][1:]  # Remove the #
+            
+            if directive_name in ['ifdef', 'ifndef']:
+                nest_level += 1
+            elif directive_name == 'endif':
+                nest_level -= 1
+                if nest_level == 0:
+                    # Found the matching #endif
+                    return (hash_pos, line_end)
+            
+            pos = line_end + 1
+        
+        return -1  # No matching #endif found
+
+    def handle_error(self, code, start, end, arguments):
+        """
+        Handle #error directive.
+        This should cause compilation to stop with the specified error message.
+        """
+        error_message = arguments.strip().strip('"\'')
+        self.syntax_error(f"#error: {error_message}")
+        return code  # This line won't be reached due to the exception
+
+    def handle_warning(self, code, start, end, arguments):
+        """
+        Handle #warning directive (if supported).
+        This should issue a warning but continue compilation.
+        """
+        warning_message = arguments.strip().strip('"\'')
+        print(f"WARNING: #warning: {warning_message}")
+        # Remove the warning directive from the code
         return code[:start] + code[end+1:]
-    
+
+    def handle_pragma(self, code, start, end, arguments):
+        """
+        Handle #pragma directive.
+        Pragmas are implementation-specific directives.
+        This is a basic implementation that just removes the pragma.
+        """
+        pragma_args = arguments.strip()
+        print(f"INFO: Ignoring pragma: {pragma_args}")
+        # Remove the pragma directive from the code
+        return code[:start] + code[end+1:]
+
+    def handle_line(self, code, start, end, arguments):
+        """
+        Handle #line directive.
+        This changes the line numbering for error reporting.
+        Basic implementation that just removes the directive.
+        """
+        line_args = arguments.strip()
+        print(f"INFO: Line directive ignored: {line_args}")
+        # Remove the line directive from the code
+        return code[:start] + code[end+1:]
     def replace_defines(self, code):
+        print(f"DEBUG: Starting replace_defines with code length: {len(code)}")
+        print(f"DEBUG: Available defines: {self.defines}")
+        print(f"DEBUG: Available function macros: {self.function_macros}")
+        
         # First pass: replace all object-like macros
         # We need to be careful about the order - replace longer names first to avoid partial matches
         sorted_defines = sorted(self.defines.items(), key=lambda x: len(x[0]), reverse=True)
         
+        print(f"DEBUG: Sorted defines for replacement: {sorted_defines}")
+        
         for identifier, replacement in sorted_defines:
-            # Debug output
-            print(f"DEBUG: Replacing '{identifier}' with '{replacement}'")
+            # Debug output - show a sample of the code being searched
+            sample_code = code[:200] + "..." if len(code) > 200 else code
+            print(f"DEBUG: Looking for '{identifier}' in code sample: {sample_code}")
+            
             # Use word boundaries to avoid partial replacements
             pattern = r'\b' + re.escape(identifier) + r'\b'
+            print(f"DEBUG: Using pattern: {pattern}")
+            
+            # Find all matches before replacement
+            matches = list(re.finditer(pattern, code))
+            print(f"DEBUG: Found {len(matches)} matches for '{identifier}'")
+            
+            if matches:
+                for i, match in enumerate(matches):
+                    start, end = match.span()
+                    context_start = max(0, start - 20)
+                    context_end = min(len(code), end + 20)
+                    context = code[context_start:context_end]
+                    print(f"DEBUG: Match {i+1}: '{match.group()}' at position {start}-{end}, context: '{context}'")
+            
             before_count = len(re.findall(pattern, code))
             code = re.sub(pattern, replacement, code)
             after_count = len(re.findall(pattern, code))
+            
             if before_count > 0:
-                print(f"DEBUG: Replaced {before_count} instances of '{identifier}' (remaining: {after_count})")
+                print(f"DEBUG: Replaced {before_count} instances of '{identifier}' with '{replacement}' (remaining: {after_count})")
+                # Show sample of code after replacement
+                sample_after = code[:200] + "..." if len(code) > 200 else code
+                print(f"DEBUG: Code after replacing '{identifier}': {sample_after}")
+            else:
+                print(f"DEBUG: No instances of '{identifier}' found to replace")
         
         # Second pass: replace function-like macros
         # Sort by name length (longest first) to handle overlapping macro names
         sorted_function_macros = sorted(self.function_macros.items(), key=lambda x: len(x[0]), reverse=True)
         
+        print(f"DEBUG: Processing {len(sorted_function_macros)} function macros")
+        
         for macro_name, macro_info in sorted_function_macros:
+            print(f"DEBUG: Processing function macro '{macro_name}' with params {macro_info['params']}")
+            
             # Use a more robust pattern that handles whitespace better
             pattern = r'\b' + re.escape(macro_name) + r'\s*\(((?:[^()]*|\([^()]*\))*)\)'
+            print(f"DEBUG: Function macro pattern: {pattern}")
             
             # Find all instances of the macro
             macro_matches = list(re.finditer(pattern, code))
+            print(f"DEBUG: Found {len(macro_matches)} function macro calls for '{macro_name}'")
+            
             # Process in reverse to avoid issues with replacement affecting positions
-            for match in reversed(macro_matches):
+            for i, match in enumerate(reversed(macro_matches)):
+                print(f"DEBUG: Processing function macro call {len(macro_matches) - i}: '{match.group()}'")
+                
                 full_match = match.group(0)
                 args_str = match.group(1)
                 
@@ -505,34 +688,57 @@ class Preprocessor:
                     if current_arg:
                         args.append(current_arg.strip())
                 
+                print(f"DEBUG: Parsed function macro arguments: {args}")
+                
                 # Generate replacement
                 replacement = macro_info['replacement']
+                print(f"DEBUG: Original replacement template: '{replacement}'")
                 
                 # Process stringizing operator (#)
-                for i, param in enumerate(macro_info['params']):
-                    if i < len(args):
+                for j, param in enumerate(macro_info['params']):
+                    if j < len(args):
                         # Handle # operator (stringizing)
                         pattern_stringify = r'#\s*' + re.escape(param) + r'\b'
-                        replacement = re.sub(pattern_stringify, f'"{args[i]}"', replacement)
+                        old_replacement = replacement
+                        replacement = re.sub(pattern_stringify, f'"{args[j]}"', replacement)
+                        if old_replacement != replacement:
+                            print(f"DEBUG: Applied stringizing: '{old_replacement}' -> '{replacement}'")
                 
                 # Process token pasting operator (##)
                 while '##' in replacement:
+                    old_replacement = replacement
                     replacement = re.sub(r'(\w+)\s*##\s*(\w+)', r'\1\2', replacement)
+                    if old_replacement != replacement:
+                        print(f"DEBUG: Applied token pasting: '{old_replacement}' -> '{replacement}'")
+                    else:
+                        break  # Avoid infinite loop
                 
                 # Replace parameters with arguments
-                for i, param in enumerate(macro_info['params']):
-                    if i < len(args):
+                for j, param in enumerate(macro_info['params']):
+                    if j < len(args):
                         pattern_param = r'\b' + re.escape(param) + r'\b'
-                        replacement = re.sub(pattern_param, args[i], replacement)
+                        old_replacement = replacement
+                        replacement = re.sub(pattern_param, args[j], replacement)
+                        if old_replacement != replacement:
+                            print(f"DEBUG: Replaced parameter '{param}' with '{args[j]}': '{old_replacement}' -> '{replacement}'")
                 
                 # Handle variadic arguments (__VA_ARGS__)
                 if macro_info['is_variadic'] and len(args) > len(macro_info['params']):
                     va_args = args[len(macro_info['params']):]
                     va_args_str = ', '.join(va_args)
+                    old_replacement = replacement
                     replacement = replacement.replace('__VA_ARGS__', va_args_str)
+                    if old_replacement != replacement:
+                        print(f"DEBUG: Replaced __VA_ARGS__: '{old_replacement}' -> '{replacement}'")
+                
+                print(f"DEBUG: Final replacement for function macro: '{replacement}'")
                 
                 # Replace the macro call with its expansion
                 start, end = match.span()
                 code = code[:start] + replacement + code[end:]
+                print(f"DEBUG: Applied function macro replacement at position {start}-{end}")
+        
+        print(f"DEBUG: Final code length: {len(code)}")
+        print(f"DEBUG: Final code sample: {code[:300]}{'...' if len(code) > 300 else ''}")
         
         return code
