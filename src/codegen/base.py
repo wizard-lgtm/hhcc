@@ -312,19 +312,15 @@ class Codegen:
             else:
                 top_level_code.append(node)
 
-        # Always process ALL function definitions first to ensure they're available for calls
+        # Process NON-MAIN function definitions first
         for node in function_definitions:
-            self.process_node(node)
+            if node.name != "main":  # Skip main for now
+                self.process_node(node)
 
         # Handle different cases of main function and top-level code
         if explicit_main_found and top_level_code:
             # Both explicit main and top-level code exist
-            # Process non-main functions first
-            for node in function_definitions:
-                if node.name != "main":
-                    self.process_node(node)
-
-            # Process the user's main function but rename it to avoid conflict
+            # Rename the user's main function to avoid conflict
             user_main_node = next(
                 node for node in function_definitions if node.name == "main"
             )
@@ -357,9 +353,11 @@ class Codegen:
 
         elif explicit_main_found and not top_level_code:
             # Only explicit main exists, no top-level code
-            # Process all function definitions normally
-            for node in function_definitions:
-                self.process_node(node)
+            # Process the main function normally
+            user_main_node = next(
+                node for node in function_definitions if node.name == "main"
+            )
+            self.process_node(user_main_node)
 
         elif not explicit_main_found and top_level_code:
             # Only top-level code exists, no explicit main
