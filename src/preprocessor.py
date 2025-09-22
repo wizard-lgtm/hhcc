@@ -216,7 +216,8 @@ class Preprocessor:
             return
         
         # Check if this is a function-like macro
-        match = re.match(r'(\w+)\s*\((.*?)\)\s*(.*)', arguments)
+        # IMPORTANT: No whitespace allowed between macro name and opening parenthesis
+        match = re.match(r'(\w+)\((.*?)\)\s*(.*)', arguments)
         if match:
             # Function-like macro
             macro_name = match.group(1)
@@ -334,7 +335,8 @@ class Preprocessor:
             return code
         
         # Check if this is a function-like macro
-        match = re.match(r'(\w+)\s*\((.*?)\)\s*(.*)', arguments)
+        # IMPORTANT: No whitespace allowed between macro name and opening parenthesis
+        match = re.match(r'(\w+)\((.*?)\)\s*(.*)', arguments)
         if match:
             # Function-like macro
             macro_name = match.group(1)
