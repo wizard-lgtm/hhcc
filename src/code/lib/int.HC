@@ -1,3 +1,6 @@
+#include "lib/print.HC"
+#ifndef LIB_INT_HC
+#define LIB_INT_HC
 #define NULL    0
 #define TRUE    1
 #define FALSE   0
@@ -38,3 +41,19 @@
 #define loge_2  (0x3FE62E42FEFA39EF(F64))
 #define sqrt2   (0x3FF6A09E667F3BCD(F64))
 #define eps     (0x3CB0000000000000(F64))
+
+U0 test_int_defines(){
+    // Int defines test function
+    I32 a = I32_MIN;
+    I32 b = I32_MAX;
+    U32 c = U32_MIN;
+    U32 d = U32_MAX;
+
+    print_str("I32_MIN: "); print_int(a); print_chr('\n'); // should print -2147483648
+    print_str("I32_MAX: "); print_int(b); print_chr('\n'); // should print 2147483647
+    print_str("U32_MIN: "); print_int(c); print_chr('\n'); // should print 0
+    print_str("U32_MAX: "); print_int(d); print_chr('\n'); // should print 4294967295
+    return;
+}
+
+#endif

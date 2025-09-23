@@ -1,3 +1,5 @@
+#ifndef LIB_PRINT_HC
+#define LIB_PRINT_HC
 U64 stdout_write(U8* str, U64 len){
     U64 ret;
     U64 rax=1;
@@ -51,3 +53,4 @@ U0 print_chr(U8 ch) {
     buf[1] = '\0';
     print_str(buf);
 }
+#endif
