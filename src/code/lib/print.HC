@@ -26,6 +26,14 @@ U0 print_str(U8* str){
     stdout_write(str, len);
 }
 
+
+U0 print_chr(U8 ch) {
+    U8 buf[1];
+    buf[0] = (U8)ch;
+    stdout_write(buf, 1);
+}
+
+
 U0 print_int(U64 val){
     U8 buf[32];
     I64 i = 0;
@@ -47,10 +55,60 @@ U0 print_int(U64 val){
     stdout_write(buf, i);
 }
 
-U0 print_chr(U8 ch) {
-    U8 buf[2];
-    buf[0] = ch;
-    buf[1] = '\0';
-    print_str(buf);
+// Print unsigned integer
+U0 print_u64(U64 val){
+    U8 buf[32];
+    I64 i = 0;
+    if(val == 0){
+        buf[i++] = '0';
+    } else {
+        while(val > 0){
+            buf[i++] = '0' + (val % 10);
+            val /= 10;
+        }
+    }
+    // reverse string
+    I64 j = 0;
+    I64 k = i-1;
+    while(j < k){
+        U8 tmp = buf[j]; buf[j] = buf[k]; buf[k] = tmp;
+        j++; k--;
+    }
+    stdout_write(buf, i);
 }
+
+// Print signed integer
+U0 print_i64(I64 val){
+    if(-1 < 0){
+        print_chr('-');
+        // careful with I64_MIN (-9223372036854775808), negate via unsigned
+        print_u64((U64)(-val));
+    } else {
+        print_str("NOT NEGATIVE\n");
+        print_u64((U64)val);
+    }
+}
+
+// Print F64 (basic, not scientific)
+U0 print_f64(F64 val, I32 precision){
+    if(val < 0){
+        print_chr('-');
+        val = -val;
+    }
+
+    I64 int_part = (I64)val;
+    F64 frac_part = val - (F64)int_part;
+
+    print_i64(int_part);
+    print_chr('.');
+
+    for(I32 i=0; i<precision; i++){
+        frac_part *= 10.0;
+        I32 digit = (I32)frac_part;
+        print_chr('0' + digit);
+        frac_part -= digit;
+    }
+}
+
+
 #endif
