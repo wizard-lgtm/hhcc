@@ -35,8 +35,37 @@ class Preprocessor:
         
         return line.strip()
     
+    def is_inside_string_or_char(self, text, position):
+        """Check if the position is inside a string literal or character literal"""
+        in_string = False
+        in_char = False
+        escape_next = False
+        
+        for i in range(position):
+            if i >= len(text):
+                break
+                
+            char = text[i]
+            
+            if escape_next:
+                escape_next = False
+                continue
+                
+            if char == '\\':
+                escape_next = True
+                continue
+                
+            if not in_char and char == '"' and not escape_next:
+                in_string = not in_string
+            elif not in_string and char == "'" and not escape_next:
+                in_char = not in_char
+                
+        return in_string or in_char
+    
     def apply_macro_replacements(self, line):
-        """Apply current macro definitions to a line of code"""
+        """Apply current macro definitions to a line of code, but skip string/char literals"""
+        original_line = line
+        
         # First pass: replace all object-like macros
         # Sort by length (longest first) to avoid partial matches
         sorted_defines = sorted(self.defines.items(), key=lambda x: len(x[0]), reverse=True)
@@ -44,7 +73,19 @@ class Preprocessor:
         for identifier, replacement in sorted_defines:
             # Use word boundaries to avoid partial replacements
             pattern = r'\b' + re.escape(identifier) + r'\b'
-            line = re.sub(pattern, replacement, line)
+            
+            # Find all matches
+            matches = list(re.finditer(pattern, line))
+            
+            # Process matches in reverse order to avoid position shifts
+            for match in reversed(matches):
+                start_pos = match.start()
+                end_pos = match.end()
+                
+                # Check if this match is inside a string or character literal
+                if not self.is_inside_string_or_char(line, start_pos):
+                    # Safe to replace
+                    line = line[:start_pos] + replacement + line[end_pos:]
         
         # Second pass: replace function-like macros
         # Sort by name length (longest first) to handle overlapping macro names
@@ -59,6 +100,13 @@ class Preprocessor:
             
             # Process in reverse to avoid issues with replacement affecting positions
             for match in reversed(macro_matches):
+                start_pos = match.start()
+                end_pos = match.end()
+                
+                # Check if this match is inside a string or character literal
+                if self.is_inside_string_or_char(line, start_pos):
+                    continue  # Skip this match, it's inside a string/char literal
+                
                 full_match = match.group(0)
                 args_str = match.group(1)
                 
@@ -68,6 +116,7 @@ class Preprocessor:
                     current_arg = ""
                     paren_level = 0
                     in_string = False
+                    in_char = False
                     escape_next = False
                     
                     for char in args_str:
@@ -81,12 +130,17 @@ class Preprocessor:
                             escape_next = True
                             continue
                             
-                        if char == '"' and not escape_next:
+                        if char == '"' and not escape_next and not in_char:
                             in_string = not in_string
                             current_arg += char
                             continue
                             
-                        if not in_string:
+                        if char == "'" and not escape_next and not in_string:
+                            in_char = not in_char
+                            current_arg += char
+                            continue
+                            
+                        if not in_string and not in_char:
                             if char == '(':
                                 paren_level += 1
                                 current_arg += char
@@ -134,8 +188,7 @@ class Preprocessor:
                     replacement = replacement.replace('__VA_ARGS__', va_args_str)
                 
                 # Replace the macro call with its expansion
-                start, end = match.span()
-                line = line[:start] + replacement + line[end:]
+                line = line[:start_pos] + replacement + line[end_pos:]
         
         return line
     
@@ -695,14 +748,3 @@ class Preprocessor:
         """
         line_args = arguments.strip()
         print(f"INFO: Line directive ignored: {line_args}")
-        # Remove the line directive from the code
-        return code[:start] + code[end+1:]
-
-    # Remove the old replace_defines method since we're doing inline replacement now
-    def replace_defines(self, code):
-        """
-        Legacy method kept for compatibility.
-        In the new implementation, macro replacement happens inline.
-        """
-        print("WARNING: replace_defines called but macro replacement already done inline")
-        return code
