@@ -35,6 +35,110 @@ class Preprocessor:
         
         return line.strip()
     
+    def apply_macro_replacements(self, line):
+        """Apply current macro definitions to a line of code"""
+        # First pass: replace all object-like macros
+        # Sort by length (longest first) to avoid partial matches
+        sorted_defines = sorted(self.defines.items(), key=lambda x: len(x[0]), reverse=True)
+        
+        for identifier, replacement in sorted_defines:
+            # Use word boundaries to avoid partial replacements
+            pattern = r'\b' + re.escape(identifier) + r'\b'
+            line = re.sub(pattern, replacement, line)
+        
+        # Second pass: replace function-like macros
+        # Sort by name length (longest first) to handle overlapping macro names
+        sorted_function_macros = sorted(self.function_macros.items(), key=lambda x: len(x[0]), reverse=True)
+        
+        for macro_name, macro_info in sorted_function_macros:
+            # Use a more robust pattern that handles whitespace better
+            pattern = r'\b' + re.escape(macro_name) + r'\s*\(((?:[^()]*|\([^()]*\))*)\)'
+            
+            # Find all instances of the macro in this line
+            macro_matches = list(re.finditer(pattern, line))
+            
+            # Process in reverse to avoid issues with replacement affecting positions
+            for match in reversed(macro_matches):
+                full_match = match.group(0)
+                args_str = match.group(1)
+                
+                # Parse arguments with proper handling of nested parentheses
+                args = []
+                if args_str.strip():  # Only parse if there are arguments
+                    current_arg = ""
+                    paren_level = 0
+                    in_string = False
+                    escape_next = False
+                    
+                    for char in args_str:
+                        if escape_next:
+                            current_arg += char
+                            escape_next = False
+                            continue
+                            
+                        if char == '\\':
+                            current_arg += char
+                            escape_next = True
+                            continue
+                            
+                        if char == '"' and not escape_next:
+                            in_string = not in_string
+                            current_arg += char
+                            continue
+                            
+                        if not in_string:
+                            if char == '(':
+                                paren_level += 1
+                                current_arg += char
+                            elif char == ')':
+                                paren_level -= 1
+                                current_arg += char
+                            elif char == ',' and paren_level == 0:
+                                args.append(current_arg.strip())
+                                current_arg = ""
+                            else:
+                                current_arg += char
+                        else:
+                            current_arg += char
+                    
+                    if current_arg:
+                        args.append(current_arg.strip())
+                
+                # Generate replacement
+                replacement = macro_info['replacement']
+                
+                # Process stringizing operator (#)
+                for j, param in enumerate(macro_info['params']):
+                    if j < len(args):
+                        # Handle # operator (stringizing)
+                        pattern_stringify = r'#\s*' + re.escape(param) + r'\b'
+                        replacement = re.sub(pattern_stringify, f'"{args[j]}"', replacement)
+                
+                # Process token pasting operator (##)
+                while '##' in replacement:
+                    old_replacement = replacement
+                    replacement = re.sub(r'(\w+)\s*##\s*(\w+)', r'\1\2', replacement)
+                    if old_replacement == replacement:
+                        break  # Avoid infinite loop
+                
+                # Replace parameters with arguments
+                for j, param in enumerate(macro_info['params']):
+                    if j < len(args):
+                        pattern_param = r'\b' + re.escape(param) + r'\b'
+                        replacement = re.sub(pattern_param, args[j], replacement)
+                
+                # Handle variadic arguments (__VA_ARGS__)
+                if macro_info['is_variadic'] and len(args) > len(macro_info['params']):
+                    va_args = args[len(macro_info['params']):]
+                    va_args_str = ', '.join(va_args)
+                    replacement = replacement.replace('__VA_ARGS__', va_args_str)
+                
+                # Replace the macro call with its expansion
+                start, end = match.span()
+                line = line[:start] + replacement + line[end:]
+        
+        return line
+    
     def preprocess(self):
         # Split code into lines for easier processing
         lines = self.code.split('\n')
@@ -166,7 +270,12 @@ class Preprocessor:
                 elif full_directive == directives.get("INCLUDE", "#include"):
                     # Handle include
                     include_content = self.handle_include_simple(arguments.strip())
-                    processed_lines.append(include_content)
+                    # Apply macro replacements to included content
+                    include_lines = include_content.split('\n')
+                    processed_include_lines = []
+                    for include_line in include_lines:
+                        processed_include_lines.append(self.apply_macro_replacements(include_line))
+                    processed_lines.extend(processed_include_lines)
                     continue
                 elif full_directive == directives.get("UNDEF", "#undef"):
                     # Handle undef
@@ -178,7 +287,9 @@ class Preprocessor:
             else:
                 # Regular code line, only keep if not in skipped block
                 if not skip_lines:
-                    processed_lines.append(line)
+                    # Apply macro replacements to this line before adding it
+                    processed_line = self.apply_macro_replacements(line)
+                    processed_lines.append(processed_line)
         
         # Check for unmatched conditional directives
         if conditional_stack:
@@ -188,15 +299,10 @@ class Preprocessor:
         processed_code = '\n'.join(processed_lines)
         
         # Debug output
-        if self.defines:
-            print(f"DEBUG: Active defines before replacement: {self.defines}")
-        if self.function_macros:
-            print(f"DEBUG: Active function macros before replacement: {self.function_macros}")
+        print(f"DEBUG: Final defines state: {self.defines}")
+        print(f"DEBUG: Final function macros state: {self.function_macros}")
         
-        # Process all defined macros in the code
-        processed_code = self.replace_defines(processed_code)
-        
-        # Return processed code
+        # Return processed code (no need for replace_defines anymore)
         return processed_code
     
     def evaluate_ifdef(self, identifier):
@@ -302,6 +408,7 @@ class Preprocessor:
         line_info = f"in line: {line_num}" if line_num else ""
         raise Exception(f"{message} {line_info}")
 
+    # Keep all the other methods for compatibility, but they won't be used in the main flow
     def handle_include(self, code, start, end, arguments):
         # Get the file path from arguments
         file_path = arguments.strip('"\'')
@@ -578,167 +685,12 @@ class Preprocessor:
         print(f"INFO: Line directive ignored: {line_args}")
         # Remove the line directive from the code
         return code[:start] + code[end+1:]
+
+    # Remove the old replace_defines method since we're doing inline replacement now
     def replace_defines(self, code):
-        print(f"DEBUG: Starting replace_defines with code length: {len(code)}")
-        print(f"DEBUG: Available defines: {self.defines}")
-        print(f"DEBUG: Available function macros: {self.function_macros}")
-        
-        # First pass: replace all object-like macros
-        # We need to be careful about the order - replace longer names first to avoid partial matches
-        sorted_defines = sorted(self.defines.items(), key=lambda x: len(x[0]), reverse=True)
-        
-        print(f"DEBUG: Sorted defines for replacement: {sorted_defines}")
-        
-        for identifier, replacement in sorted_defines:
-            # Debug output - show a sample of the code being searched
-            sample_code = code[:200] + "..." if len(code) > 200 else code
-            print(f"DEBUG: Looking for '{identifier}' in code sample: {sample_code}")
-            
-            # Use word boundaries to avoid partial replacements
-            pattern = r'\b' + re.escape(identifier) + r'\b'
-            print(f"DEBUG: Using pattern: {pattern}")
-            
-            # Find all matches before replacement
-            matches = list(re.finditer(pattern, code))
-            print(f"DEBUG: Found {len(matches)} matches for '{identifier}'")
-            
-            if matches:
-                for i, match in enumerate(matches):
-                    start, end = match.span()
-                    context_start = max(0, start - 20)
-                    context_end = min(len(code), end + 20)
-                    context = code[context_start:context_end]
-                    print(f"DEBUG: Match {i+1}: '{match.group()}' at position {start}-{end}, context: '{context}'")
-            
-            before_count = len(re.findall(pattern, code))
-            code = re.sub(pattern, replacement, code)
-            after_count = len(re.findall(pattern, code))
-            
-            if before_count > 0:
-                print(f"DEBUG: Replaced {before_count} instances of '{identifier}' with '{replacement}' (remaining: {after_count})")
-                # Show sample of code after replacement
-                sample_after = code[:200] + "..." if len(code) > 200 else code
-                print(f"DEBUG: Code after replacing '{identifier}': {sample_after}")
-            else:
-                print(f"DEBUG: No instances of '{identifier}' found to replace")
-        
-        # Second pass: replace function-like macros
-        # Sort by name length (longest first) to handle overlapping macro names
-        sorted_function_macros = sorted(self.function_macros.items(), key=lambda x: len(x[0]), reverse=True)
-        
-        print(f"DEBUG: Processing {len(sorted_function_macros)} function macros")
-        
-        for macro_name, macro_info in sorted_function_macros:
-            print(f"DEBUG: Processing function macro '{macro_name}' with params {macro_info['params']}")
-            
-            # Use a more robust pattern that handles whitespace better
-            pattern = r'\b' + re.escape(macro_name) + r'\s*\(((?:[^()]*|\([^()]*\))*)\)'
-            print(f"DEBUG: Function macro pattern: {pattern}")
-            
-            # Find all instances of the macro
-            macro_matches = list(re.finditer(pattern, code))
-            print(f"DEBUG: Found {len(macro_matches)} function macro calls for '{macro_name}'")
-            
-            # Process in reverse to avoid issues with replacement affecting positions
-            for i, match in enumerate(reversed(macro_matches)):
-                print(f"DEBUG: Processing function macro call {len(macro_matches) - i}: '{match.group()}'")
-                
-                full_match = match.group(0)
-                args_str = match.group(1)
-                
-                # Parse arguments with proper handling of nested parentheses
-                args = []
-                if args_str.strip():  # Only parse if there are arguments
-                    current_arg = ""
-                    paren_level = 0
-                    in_string = False
-                    escape_next = False
-                    
-                    for char in args_str:
-                        if escape_next:
-                            current_arg += char
-                            escape_next = False
-                            continue
-                            
-                        if char == '\\':
-                            current_arg += char
-                            escape_next = True
-                            continue
-                            
-                        if char == '"' and not escape_next:
-                            in_string = not in_string
-                            current_arg += char
-                            continue
-                            
-                        if not in_string:
-                            if char == '(':
-                                paren_level += 1
-                                current_arg += char
-                            elif char == ')':
-                                paren_level -= 1
-                                current_arg += char
-                            elif char == ',' and paren_level == 0:
-                                args.append(current_arg.strip())
-                                current_arg = ""
-                            else:
-                                current_arg += char
-                        else:
-                            current_arg += char
-                    
-                    if current_arg:
-                        args.append(current_arg.strip())
-                
-                print(f"DEBUG: Parsed function macro arguments: {args}")
-                
-                # Generate replacement
-                replacement = macro_info['replacement']
-                print(f"DEBUG: Original replacement template: '{replacement}'")
-                
-                # Process stringizing operator (#)
-                for j, param in enumerate(macro_info['params']):
-                    if j < len(args):
-                        # Handle # operator (stringizing)
-                        pattern_stringify = r'#\s*' + re.escape(param) + r'\b'
-                        old_replacement = replacement
-                        replacement = re.sub(pattern_stringify, f'"{args[j]}"', replacement)
-                        if old_replacement != replacement:
-                            print(f"DEBUG: Applied stringizing: '{old_replacement}' -> '{replacement}'")
-                
-                # Process token pasting operator (##)
-                while '##' in replacement:
-                    old_replacement = replacement
-                    replacement = re.sub(r'(\w+)\s*##\s*(\w+)', r'\1\2', replacement)
-                    if old_replacement != replacement:
-                        print(f"DEBUG: Applied token pasting: '{old_replacement}' -> '{replacement}'")
-                    else:
-                        break  # Avoid infinite loop
-                
-                # Replace parameters with arguments
-                for j, param in enumerate(macro_info['params']):
-                    if j < len(args):
-                        pattern_param = r'\b' + re.escape(param) + r'\b'
-                        old_replacement = replacement
-                        replacement = re.sub(pattern_param, args[j], replacement)
-                        if old_replacement != replacement:
-                            print(f"DEBUG: Replaced parameter '{param}' with '{args[j]}': '{old_replacement}' -> '{replacement}'")
-                
-                # Handle variadic arguments (__VA_ARGS__)
-                if macro_info['is_variadic'] and len(args) > len(macro_info['params']):
-                    va_args = args[len(macro_info['params']):]
-                    va_args_str = ', '.join(va_args)
-                    old_replacement = replacement
-                    replacement = replacement.replace('__VA_ARGS__', va_args_str)
-                    if old_replacement != replacement:
-                        print(f"DEBUG: Replaced __VA_ARGS__: '{old_replacement}' -> '{replacement}'")
-                
-                print(f"DEBUG: Final replacement for function macro: '{replacement}'")
-                
-                # Replace the macro call with its expansion
-                start, end = match.span()
-                code = code[:start] + replacement + code[end:]
-                print(f"DEBUG: Applied function macro replacement at position {start}-{end}")
-        
-        print(f"DEBUG: Final code length: {len(code)}")
-        print(f"DEBUG: Final code sample: {code[:300]}{'...' if len(code) > 300 else ''}")
-        
+        """
+        Legacy method kept for compatibility.
+        In the new implementation, macro replacement happens inline.
+        """
+        print("WARNING: replace_defines called but macro replacement already done inline")
         return code
