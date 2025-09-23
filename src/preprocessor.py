@@ -268,14 +268,11 @@ class Preprocessor:
                     self.handle_define_simple(arguments.strip())
                     continue  # Don't add this line to processed_lines
                 elif full_directive == directives.get("INCLUDE", "#include"):
-                    # Handle include
+                    # Handle include - the included content is already preprocessed
                     include_content = self.handle_include_simple(arguments.strip())
-                    # Apply macro replacements to included content
+                    # Split and add the already-processed lines
                     include_lines = include_content.split('\n')
-                    processed_include_lines = []
-                    for include_line in include_lines:
-                        processed_include_lines.append(self.apply_macro_replacements(include_line))
-                    processed_lines.extend(processed_include_lines)
+                    processed_lines.extend(include_lines)
                     continue
                 elif full_directive == directives.get("UNDEF", "#undef"):
                     # Handle undef
@@ -383,7 +380,22 @@ class Preprocessor:
             self.syntax_error(f"Include file not found: {file_path}")
             return ""
         
-        return file_content
+        # Create a temporary preprocessor for the included file
+        # to handle any directives it might contain
+        temp_preprocessor = Preprocessor.__new__(Preprocessor)
+        temp_preprocessor.compiler = self.compiler
+        temp_preprocessor.code = file_content
+        temp_preprocessor.defines = self.defines.copy()  # Share current defines
+        temp_preprocessor.function_macros = self.function_macros.copy()  # Share current macros
+        
+        # Preprocess the included file
+        processed_content = temp_preprocessor.preprocess()
+        
+        # Update our defines with any new ones from the included file
+        self.defines.update(temp_preprocessor.defines)
+        self.function_macros.update(temp_preprocessor.function_macros)
+        
+        return processed_content
     
     def handle_undef_simple(self, arguments):
         """Simplified undef handler for line-by-line processing"""
