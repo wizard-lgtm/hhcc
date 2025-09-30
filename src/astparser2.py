@@ -604,18 +604,18 @@ class ASTParser:
         while True: 
             peek_token = self.peek_token() 
             
-            # Handle variadic: "..." 
-            if peek_token and peek_token._type == TokenType.OPERATOR and peek_token.value == separators["THREEDOTS"]: 
+            # End of parameter list 
+            if peek_token and peek_token.value == separators["RPAREN"]: 
+                self.next_token() # Consume ')' 
+                break 
+            
+            # Handle variadic: "..." - CHECK THIS BEFORE PARSING PARAMETER TYPE
+            if peek_token and peek_token.value == separators["THREEDOTS"]: 
                 self.next_token() # Consume '...' 
                 has_variadic_args = True 
                 next_token = self.next_token() 
                 if not next_token or next_token.value != separators["RPAREN"]: 
                     self.syntax_error("Expected ')' after '...'", next_token) 
-                break 
-            
-            # End of parameter list 
-            if peek_token and peek_token.value == separators["RPAREN"]: 
-                self.next_token() # Consume ')' 
                 break 
             
             # Parse typed parameter
@@ -667,7 +667,7 @@ class ASTParser:
                 self.syntax_error("Expected ',' or ')'", next_token) 
         
         # Function body or declaration 
-        next_token = self.peek_token()  # Just peek to check what's next
+        next_token = self.peek_token()
         if next_token is None:
             self.syntax_error("Expected ';' or '{'", next_token)
         
@@ -676,13 +676,12 @@ class ASTParser:
             body = self.block() 
         elif next_token.value == separators["SEMICOLON"]:
             self.next_token()  # Consume ';'
-            self.next_token()  # Consume ';'
             body = None
         else:
             self.syntax_error("Expected ';' or '{'", next_token)
         
         return ASTNode.FunctionDefinition(func_name, func_return_type, body, parameters, has_variadic_args)
-        
+            
     def if_statement(self):
         # Parse condition
         next_token = self.next_token()
