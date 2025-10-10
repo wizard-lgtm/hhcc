@@ -1,4 +1,4 @@
-from .symboltable import SymbolTable
+from .symboltable import SymbolTable, create_variable_symbol
 from llvmlite import ir, binding
 from typing import TYPE_CHECKING, Dict, Callable, NamedTuple, Type
 from astnodes import *
@@ -265,6 +265,7 @@ class Codegen:
             )
             return ir.PointerType(ir.IntType(8))  # return generic u8 pointer
 
+
     def gen(self):
         # Initialize LLVM
         binding.initialize_native_target()
@@ -312,6 +313,53 @@ class Codegen:
             else:
                 top_level_code.append(node)
 
+        # ===== NEW: Setup builtin global variables (argc/argv) =====
+        i32_type = ir.IntType(32)
+        i8_type = ir.IntType(8)
+        i8_ptr_type = i8_type.as_pointer()
+        i8_ptr_ptr_type = i8_ptr_type.as_pointer()
+        
+        # Create global argc: i32 initialized to 0
+        global_argc = ir.GlobalVariable(self.module, i32_type, name="__global_argc")
+        global_argc.initializer = ir.Constant(i32_type, 0)
+        global_argc.linkage = "internal"
+        
+        # Create global argv: i8** initialized to null
+        global_argv = ir.GlobalVariable(self.module, i8_ptr_ptr_type, name="__global_argv")
+        global_argv.initializer = ir.Constant(i8_ptr_ptr_type, None)
+        global_argv.linkage = "internal"
+        
+        # Store references in codegen for later use
+        self.global_argc = global_argc
+        self.global_argv = global_argv
+        
+        # Define argc/argv in global symbol table scope
+        argc_symbol = create_variable_symbol(
+            name="argc",
+            ast_node=None,
+            data_type=Datatypes.I32,
+            llvm_type=i32_type,
+            llvm_value=global_argc,
+            scope_level=0,
+            pointer_level=0,
+            is_mutable=True
+        )
+        
+        argv_symbol = create_variable_symbol(
+            name="argv",
+            ast_node=None,
+            data_type=Datatypes.U8,
+            llvm_type=i8_ptr_ptr_type,
+            llvm_value=global_argv,
+            scope_level=0,
+            pointer_level=2,  # It's a double pointer (char**)
+            is_mutable=True
+        )
+        
+        # Add to symbol table (in global scope)
+        self.symbol_table.define(argc_symbol)
+        self.symbol_table.define(argv_symbol)
+
         # Process NON-MAIN function definitions first
         for node in function_definitions:
             if node.name != "main":  # Skip main for now
@@ -320,52 +368,59 @@ class Codegen:
         # Handle different cases of main function and top-level code
         if explicit_main_found and top_level_code:
             # Both explicit main and top-level code exist
-            # Rename the user's main function to avoid conflict
             user_main_node = next(
                 node for node in function_definitions if node.name == "main"
             )
             original_name = user_main_node.name
-            user_main_node.name = "_user_main"  # Rename before processing
+            user_main_node.name = "_user_main"
             self.process_node(user_main_node)
-            user_main_node.name = original_name  # Restore for reference
+            user_main_node.name = original_name
 
-            # Add an alias in function_map so "main" calls work
-            if "_user_main" in self.function_map:
-                self.function_map["main"] = self.function_map["_user_main"]
-
-            # Create wrapper main function that executes top-level code
-            main_func_type = ir.FunctionType(ir.IntType(32), [])
+            # Create wrapper main function
+            main_func_type = ir.FunctionType(i32_type, [i32_type, i8_ptr_ptr_type])
             main_func = ir.Function(self.module, main_func_type, name="main")
+            main_func.args[0].name = "argc"
+            main_func.args[1].name = "argv"
+            
             main_block = main_func.append_basic_block(name="entry")
             main_builder = ir.IRBuilder(main_block)
+
+            # Store argc and argv in globals
+            main_builder.store(main_func.args[0], global_argc)
+            main_builder.store(main_func.args[1], global_argv)
 
             # Set up builder context for top-level code
             self.function = main_func
             self.builder = main_builder
 
-            # Execute top-level code (main() calls will now resolve to the aliased function)
+            # Execute top-level code
             for node in top_level_code:
                 self.process_node(node, builder=self.builder)
 
             # Return 0 if no explicit return
             if not main_builder.block.is_terminated:
-                main_builder.ret(ir.Constant(ir.IntType(32), 0))
+                main_builder.ret(ir.Constant(i32_type, 0))
 
         elif explicit_main_found and not top_level_code:
-            # Only explicit main exists, no top-level code
-            # Process the main function normally
+            # Only explicit main exists - just process it normally
             user_main_node = next(
                 node for node in function_definitions if node.name == "main"
             )
             self.process_node(user_main_node)
 
         elif not explicit_main_found and top_level_code:
-            # Only top-level code exists, no explicit main
-            # Create main function for top-level code
-            main_func_type = ir.FunctionType(ir.IntType(32), [])
+            # Only top-level code exists - create main wrapper
+            main_func_type = ir.FunctionType(i32_type, [i32_type, i8_ptr_ptr_type])
             main_func = ir.Function(self.module, main_func_type, name="main")
+            main_func.args[0].name = "argc"
+            main_func.args[1].name = "argv"
+            
             main_block = main_func.append_basic_block(name="entry")
             main_builder = ir.IRBuilder(main_block)
+
+            # Store argc and argv in globals
+            main_builder.store(main_func.args[0], global_argc)
+            main_builder.store(main_func.args[1], global_argv)
 
             # Set up builder context
             self.function = main_func
@@ -376,18 +431,54 @@ class Codegen:
                 self.process_node(node, builder=self.builder)
 
             # Return 0
-            main_builder.ret(ir.Constant(ir.IntType(32), 0))
+            main_builder.ret(ir.Constant(i32_type, 0))
 
         else:
-            # Neither explicit main nor top-level code
-            # Create empty main that returns 0
-            main_func_type = ir.FunctionType(ir.IntType(32), [])
+            # Neither explicit main nor top-level code - create empty main
+            main_func_type = ir.FunctionType(i32_type, [i32_type, i8_ptr_ptr_type])
             main_func = ir.Function(self.module, main_func_type, name="main")
+            main_func.args[0].name = "argc"
+            main_func.args[1].name = "argv"
+            
             main_block = main_func.append_basic_block(name="entry")
             main_builder = ir.IRBuilder(main_block)
-            main_builder.ret(ir.Constant(ir.IntType(32), 0))
+
+            # Store argc and argv in globals
+            main_builder.store(main_func.args[0], global_argc)
+            main_builder.store(main_func.args[1], global_argv)
+            main_builder.ret(ir.Constant(i32_type, 0))
 
         return module
+
+
+    # ===== NEW: Helper methods for accessing argc/argv =====
+
+    def get_argc_value(self, builder):
+        """Load the current argc value from global."""
+        return builder.load(self.global_argc, name="argc_load")
+
+
+    def get_argv_value(self, builder):
+        """Load the current argv pointer from global."""
+        return builder.load(self.global_argv, name="argv_load")
+
+
+    def get_argv_element(self, builder, index):
+        """
+        Get argv[index] - returns i8* (char*)
+        
+        Args:
+            builder: LLVM IR builder
+            index: i32 value representing the index
+        
+        Returns:
+            i8* pointing to the string at argv[index]
+        """
+        argv_ptr = builder.load(self.global_argv, name="argv_load")
+        elem_ptr = builder.gep(argv_ptr, [index], name="argv_element_ptr")
+        elem = builder.load(elem_ptr, name="argv_element")
+        return elem
+
 
     def process_node(self, node, **kwargs):
         # Get the node's class type

@@ -49,6 +49,19 @@ class Compiler:
         self.link_libs = link_libs or []
         self.lib_paths = lib_paths or []
         self.object_files = object_files or []
+
+        self.builtin_variables = {
+            'argc': {
+                'type': 'I32',
+                'is_global': True,
+                'description': 'Argument count - number of command line arguments'
+            },
+            'argv': {
+                'type': 'U8**',  # char** in C
+                'is_global': True,
+                'description': 'Argument vector - array of command line argument strings'
+            }
+        }
         
         print(f"hhcc compiler version: {self.version}")
 
